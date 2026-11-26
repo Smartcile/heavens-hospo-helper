@@ -10,6 +10,26 @@ import {
   projectToPerimeter,
   type FurnitureGeometry,
 } from '@/lib/furniture'
+import {
+  screenToWorld,
+  screenDeltaToWorld,
+  zoomAroundPoint,
+  clampToRoom,
+  snapValue,
+  findMagneticSnap,
+  pickJoinTarget,
+  beginGesture,
+  moveGesture,
+  endGesture,
+  cancelGesture,
+  gridSnap,
+  IDLE_GESTURE,
+  type GestureKind,
+  type GestureState,
+  type JoinCandidate,
+  type Placement,
+  type Point,
+} from '@/lib/floorplan-pointer'
 
 interface ZoneP { id: string; x: number; y: number; width: number; height: number; sectionId: string; label?: string }
 
@@ -71,13 +91,20 @@ interface PixiCanvasProps {
   containerRef: React.RefObject<HTMLDivElement | null>
   viewRef: React.MutableRefObject<ViewState>
   onElementClick: (id: string | null, ctrlKey?: boolean) => void
-  onElementDragEnd: (id: string, x: number, y: number) => void
-  onElementDropToSection?: (id: string, sectionId: string) => void
+  /**
+   * Commit a dropped element. `sectionId` is the zone it landed in, if any.
+   * Omit it on a read-only canvas (the worker floor plan) to disable dragging.
+   */
+  onElementDragEnd?: (id: string, x: number, y: number, sectionId?: string | null) => void
   onZoneClick: (id: string | null) => void
   onZoneDragEnd: (id: string, x: number, y: number) => void
+  /** Called once when a resize handle gesture starts, so the editor can snapshot undo state. */
+  onZoneResizeStart?: () => void
   onZoneDrawStart: (x: number, y: number) => void
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
+  /** Escape / pointercancel during a zone draw — clear the preview. */
+  onZoneDrawCancel?: () => void
   onZoneResize?: (id: string, x: number, y: number, width: number, height: number) => void
   textScale?: number
   selRect?: { x: number; y: number; w: number; h: number } | null
@@ -91,7 +118,8 @@ interface PixiCanvasProps {
   setupItems?: SetupItemP[]
   setupSelectedIds?: string[]
   onSetupItemClick?: (id: string | null, ctrlKey?: boolean) => void
-  onSetupItemDragEnd?: (id: string, x: number, y: number) => void
+  /** Commit a dropped placement; `sectionId` is the zone it landed in, if any. */
+  onSetupItemDragEnd?: (id: string, x: number, y: number, sectionId?: string | null) => void
   onSetupChairEdge?: (id: string, edge: 'top' | 'bottom' | 'left' | 'right', delta: number) => void
   onSetupItemRotate?: (id: string, rotation: number) => void
   onSetupItemsJoin?: (draggedId: string, targetId: string) => void
@@ -118,13 +146,6 @@ interface PixiCanvasProps {
   setupActive?: boolean
 }
 
-function gridSnap(v: number, u: number) { return Math.round(v / u) * u }
-function edgeSnap(v: number, size: number, u: number) {
-  const left = gridSnap(v, u)
-  const right = gridSnap(v + size, u) - size
-  return Math.abs(v - left) < Math.abs(v - right) ? left : right
-}
-
 function computeView(sw: number, sh: number, rw: number, rd: number, zoom: number, panX: number, panY: number) {
   const baseScale = Math.min((sw - 40) / rw, (sh - 40) / rd)
   const ox = (sw - rw * baseScale) / 2; const oy = (sh - rd * baseScale) / 2
@@ -142,8 +163,8 @@ export function FloorPlanPixiCanvas({
   snapThreshold = 15,
   sectionColours, sectionNames, sectionBoundaries, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
-  onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd,
-  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
+  onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart,
+  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false,
   setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false, ghostMode = false,
@@ -156,12 +177,112 @@ export function FloorPlanPixiCanvas({
   const baseRef = useRef<PIXI.Container | null>(null)
   const setupRef = useRef<PIXI.Container | null>(null)
   const boundaryRef = useRef<PIXI.Container | null>(null)
+  /** Snap preview outline, drawn in room space above every layer. */
+  const guideRef = useRef<PIXI.Graphics | null>(null)
+  /** The one active pointer gesture — see `beginCanvasGesture`. */
+  const gestureRef = useRef<GestureState>(IDLE_GESTURE)
+  const gestureHandlersRef = useRef<CanvasGesture | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
   // Keep current room dimensions available to the init-effect handlers (which have [] deps)
   const dimsRef = useRef({ roomWidth, roomDepth, gridUnit })
   dimsRef.current = { roomWidth, roomDepth, gridUnit }
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement })
-  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd })
+  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd }
+
+  // ── Gesture ownership ────────────────────────────────────────────────────
+  // Every pointer gesture (pan, drag, draw, select, rotate, resize, chair) is
+  // owned by this one state machine. Node handlers only nominate a gesture;
+  // the stage's single move/up handler drives it. A second pointerdown or an
+  // Escape cancels whatever was running, so nothing can stick.
+  type CanvasGesture = {
+    token: number
+    kind: Exclude<GestureKind, 'idle'>
+    move: (ev: PIXI.FederatedPointerEvent) => void
+    finish: (gesture: GestureState) => void
+    cancel: () => void
+  }
+
+  function beginCanvasGesture(
+    kind: Exclude<GestureKind, 'idle'>,
+    ev: PIXI.FederatedPointerEvent,
+    handlers: { move: CanvasGesture['move']; finish: CanvasGesture['finish']; cancel?: () => void },
+  ) {
+    const running = gestureHandlersRef.current
+    if (running) {
+      gestureHandlersRef.current = null
+      clearGuide()
+      running.cancel()
+    }
+    const state = beginGesture(gestureRef.current, kind, ev.globalX, ev.globalY)
+    gestureRef.current = state
+    gestureHandlersRef.current = { token: state.token, kind, move: handlers.move, finish: handlers.finish, cancel: handlers.cancel ?? (() => {}) }
+  }
+
+  function clearGuide() {
+    guideRef.current?.clear()
+  }
+
+  /** End the active gesture and let it commit (canvas pointerup / pointerupoutside). */
+  function finishCanvasGesture() {
+    const gesture = gestureHandlersRef.current
+    if (!gesture) return
+    gestureHandlersRef.current = null
+    clearGuide()
+    const final = endGesture(gestureRef.current)
+    gestureRef.current = final
+    gesture.finish(final)
+  }
+
+  /** Abort the active gesture and put the scene back (Escape / pointercancel). */
+  function cancelCanvasGesture() {
+    const gesture = gestureHandlersRef.current
+    if (!gesture) return
+    gestureHandlersRef.current = null
+    clearGuide()
+    gesture.cancel()
+    gestureRef.current = cancelGesture(gestureRef.current)
+  }
+
+  /** World-space movement of the pointer since a drag began. */
+  function dragDelta(start: Point, gesture: GestureState): Point {
+    const vs = viewRef.current
+    return screenDeltaToWorld(vs, gesture.lastX - start.x, gesture.lastY - start.y)
+  }
+
+  /**
+   * Resolve where a dropped item lands: grid/edge snap only when near a line,
+   * then a magnetic flush fit against same-type neighbours. Applied on release
+   * only — never during the drag, so the item tracks the pointer 1:1.
+   */
+  function resolveDrop(
+    x: number, y: number, width: number, depth: number, rotation: number,
+    targets: Placement[], enabled: boolean,
+  ): { x: number; y: number; target: number | null } {
+    if (!enabled) return { x, y, target: null }
+    const gu = dimsRef.current.gridUnit
+    const tolerance = Math.min(gu / 2, 15)
+    const snappedX = snapValue(x, width, gu, tolerance)
+    const snappedY = snapValue(y, depth, gu, tolerance)
+    const snap = findMagneticSnap(
+      { x: snappedX, y: snappedY, width, depth, rotation },
+      targets,
+      snapThreshold,
+    )
+    if (!snap) return { x: snappedX, y: snappedY, target: null }
+    return { x: snap.x, y: snap.y, target: snap.targetIndex }
+  }
+
+  /** Outline where the item would land if released now. */
+  function showGuide(rect: { x: number; y: number; w: number; h: number } | null) {
+    const guide = guideRef.current
+    if (!guide) return
+    guide.clear()
+    if (!rect) return
+    const vs = viewRef.current
+    const px = vs.baseScale * vs.zoom || 1
+    guide.lineStyle(1.5 / px, 0x4488FF, 0.9)
+    guide.drawRect(rect.x, rect.y, rect.w, rect.h)
+  }
 
   // Init app once
   useEffect(() => {
@@ -191,108 +312,138 @@ export function FloorPlanPixiCanvas({
     setupRef.current = setupLayer
     room.addChild(setupLayer)
 
+    const guide = new PIXI.Graphics()
+    guide.eventMode = 'none'
+    guideRef.current = guide
+    room.addChild(guide)
+
     const vs = computeView(w, h, roomWidth, roomDepth, 1, 0, 0)
     viewRef.current = vs
     applyRoomTransform(room, vs)
 
-    // Stage click to deselect
+    // ── One pointerdown handler ────────────────────────────────────────────
+    // Middle-click pans, left-click draws / places / selects. The three
+    // handlers that used to race here are now one dispatch, so a gesture can
+    // never be claimed twice.
     app.stage.eventMode = 'static'
     app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-        if (e.target === app.stage) { 
-        if (wallDrawing && onWallPoint) {
-          const vs = viewRef.current
-          const wx = (e.globalX - vs.ox) / (vs.baseScale * vs.zoom)
-          const wy = (e.globalY - vs.oy) / (vs.baseScale * vs.zoom)
-          onWallPoint(wx, wy)
-          return
-        }
-        if (zonePolyMode && onZonePolyAdd) {
-          const vs = viewRef.current
-          const px = (e.globalX - vs.ox) / (vs.baseScale * vs.zoom)
-          const py = (e.globalY - vs.oy) / (vs.baseScale * vs.zoom)
-          onZonePolyAdd(px, py)
-          return
-        }
-        cbRef.current.onElementClick(null); cbRef.current.onSetupItemClick?.(null); cbRef.current.onZoneClick(null) 
-      }
-    })
+      const cb = cbRef.current
 
-    // Mouse wheel zoom
-    app.stage.on('wheel', (e: PIXI.FederatedWheelEvent) => {
-      e.preventDefault()
-      const delta = e.deltaY > 0 ? 0.9 : 1.1
-      const vs = viewRef.current
-      const newZoom = Math.max(0.2, Math.min(5, vs.zoom * delta))
-      const worldX = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-      const worldY = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      vs.zoom = newZoom
-      vs.panX = e.globalX - worldX * vs.baseScale * vs.zoom - vs.ox
-      vs.panY = e.globalY - worldY * vs.baseScale * vs.zoom - vs.oy
-      applyRoomTransform(room, vs)
-      cbRef.current.onViewChange?.(newZoom)
-    })
-
-    // Middle-click pan
-    let panning: { sx: number; sy: number; px: number; py: number } | null = null
-    app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (e.button !== 1) return
-      e.preventDefault()
-      const vs = viewRef.current
-      panning = { sx: e.globalX, sy: e.globalY, px: vs.panX, py: vs.panY }
-    })
-    app.stage.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
-      if (!panning) return
-      const vs = viewRef.current
-      vs.panX = panning.px + e.globalX - panning.sx
-      vs.panY = panning.py + e.globalY - panning.sy
-      room.position.set(vs.ox + vs.panX, vs.oy + vs.panY)
-    })
-    app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
-      if (e.button !== 1) return
-      panning = null
-    })
-
-    // Zone drawing / selection rect on stage
-    let zd: { sx: number; sy: number; mode: 'zone' | 'sel' } | null = null
-    app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (e.button !== 0) return
-      if (e.target !== app.stage) return
-      const vs = viewRef.current
-      const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-      const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      // A palette tile is armed: this click drops it rather than starting a
-      // selection rectangle. Checked first so click-to-place always wins.
-      if (cbRef.current.armedPlacement && cbRef.current.onCanvasPlace) {
-        cbRef.current.onCanvasPlace(cx, cy)
+      if (e.button === 1) {
+        e.preventDefault()
+        const start = { x: e.globalX, y: e.globalY, panX: viewRef.current.panX, panY: viewRef.current.panY }
+        beginCanvasGesture('panning', e, {
+          move: (ev) => {
+            const view = viewRef.current
+            view.panX = start.panX + ev.globalX - start.x
+            view.panY = start.panY + ev.globalY - start.y
+            room.position.set(view.ox + view.panX, view.oy + view.panY)
+          },
+          finish: () => {},
+          cancel: () => {
+            const view = viewRef.current
+            view.panX = start.panX
+            view.panY = start.panY
+            room.position.set(view.ox + view.panX, view.oy + view.panY)
+          },
+        })
         return
       }
-      if (cbRef.current.zoneDrawing) {
-        if (!cbRef.current.onZoneDrawStart) return
-        zd = { sx: e.globalX, sy: e.globalY, mode: 'zone' }
-        cbRef.current.onZoneDrawStart(cx, cy)
-      } else {
-        zd = { sx: e.globalX, sy: e.globalY, mode: 'sel' }
-        cbRef.current.onSelRectStart?.(cx, cy)
+      if (e.button !== 0) return
+      if (e.target !== app.stage) return
+
+      // The same conversion every other handler uses, pan included.
+      const at = screenToWorld(viewRef.current, e.globalX, e.globalY)
+
+      if (cb.wallDrawing && cb.onWallPoint) {
+        cb.onWallPoint(at.x, at.y)
+        return
       }
+      if (cb.zonePolyMode && cb.onZonePolyAdd) {
+        cb.onZonePolyAdd(at.x, at.y)
+        return
+      }
+      // A palette tile is armed: this click drops it rather than starting a
+      // selection rectangle. Checked first so click-to-place always wins.
+      if (cb.armedPlacement && cb.onCanvasPlace) {
+        cb.onCanvasPlace(at.x, at.y)
+        return
+      }
+
+      if (cb.zoneDrawing) {
+        if (!cb.onZoneDrawStart) return
+        cb.onZoneDrawStart(at.x, at.y)
+        beginCanvasGesture('drawing', e, {
+          move: (ev) => {
+            const p = screenToWorld(viewRef.current, ev.globalX, ev.globalY)
+            cbRef.current.onZoneDrawMove(p.x, p.y)
+          },
+          finish: (gesture) => {
+            const p = screenToWorld(viewRef.current, gesture.lastX, gesture.lastY)
+            cbRef.current.onZoneDrawEnd(p.x, p.y)
+          },
+          cancel: () => {
+            // Escape / blur mid-draw must not leave the preview rectangle behind.
+            cbRef.current.onZoneDrawCancel?.()
+          },
+        })
+        return
+      }
+
+      // Nothing under the pointer: clear selection and start a rubber band.
+      cb.onElementClick(null)
+      cb.onSetupItemClick?.(null)
+      cb.onZoneClick(null)
+      cb.onSelRectStart?.(at.x, at.y)
+      beginCanvasGesture('selecting', e, {
+        move: (ev) => {
+          const p = screenToWorld(viewRef.current, ev.globalX, ev.globalY)
+          cbRef.current.onSelRectMove?.(p.x, p.y)
+        },
+        finish: (gesture) => {
+          const p = screenToWorld(viewRef.current, gesture.lastX, gesture.lastY)
+          cbRef.current.onSelRectEnd?.(p.x, p.y)
+        },
+        cancel: () => {
+          // A zero-area end clears the rubber band without selecting anything.
+          cbRef.current.onSelRectEnd?.(at.x, at.y)
+        },
+      })
     })
+
+    // Mouse wheel zoom, anchored on the pointer so the plan does not drift.
+    app.stage.on('wheel', (e: PIXI.FederatedWheelEvent) => {
+      e.preventDefault()
+      const view = viewRef.current
+      const next = zoomAroundPoint(view, view.zoom * (e.deltaY > 0 ? 0.9 : 1.1), e.globalX, e.globalY)
+      view.zoom = next.zoom
+      view.panX = next.panX
+      view.panY = next.panY
+      applyRoomTransform(room, view)
+      cbRef.current.onViewChange?.(next.zoom)
+    })
+
+    // One move/up path for every gesture (node drags included — node handlers
+    // stop the pointerdown, but the pointerup still bubbles here).
     app.stage.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
-      if (!zd) return
-      const vs = viewRef.current
-      const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-      const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      if (zd.mode === 'zone') cbRef.current.onZoneDrawMove(cx, cy)
-      else cbRef.current.onSelRectMove?.(cx, cy)
+      const gesture = gestureHandlersRef.current
+      if (!gesture) return
+      gestureRef.current = moveGesture(gestureRef.current, e.globalX, e.globalY)
+      gesture.move(e)
     })
-    app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
-      if (!zd) return
-      const vs = viewRef.current
-      const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-      const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      if (zd.mode === 'zone') cbRef.current.onZoneDrawEnd(cx, cy)
-      else cbRef.current.onSelRectEnd?.(cx, cy)
-      zd = null
-    })
+    app.stage.on('pointerup', finishCanvasGesture)
+    app.stage.on('pointerupoutside', finishCanvasGesture)
+
+    // A pointer released outside the canvas, or a lost pointer, must never
+    // leave a gesture running.
+    const onWindowUp = () => finishCanvasGesture()
+    const onWindowCancel = () => cancelCanvasGesture()
+    const onKeyDown = (ev: KeyboardEvent) => { if (ev.key === 'Escape') cancelCanvasGesture() }
+    window.addEventListener('pointerup', onWindowUp)
+    window.addEventListener('pointercancel', onWindowCancel)
+    window.addEventListener('blur', onWindowCancel)
+    window.addEventListener('keydown', onKeyDown)
 
     // ResizeObserver: auto-resize renderer + recompute view
     const ro = new ResizeObserver((entries) => {
@@ -309,7 +460,19 @@ export function FloorPlanPixiCanvas({
     })
     ro.observe(el)
 
-    return () => { ro.disconnect(); app.destroy(true, { children: true }); appRef.current = null; roomRef.current = null }
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('pointerup', onWindowUp)
+      window.removeEventListener('pointercancel', onWindowCancel)
+      window.removeEventListener('blur', onWindowCancel)
+      window.removeEventListener('keydown', onKeyDown)
+      gestureHandlersRef.current = null
+      gestureRef.current = IDLE_GESTURE
+      guideRef.current = null
+      app.destroy(true, { children: true })
+      appRef.current = null
+      roomRef.current = null
+    }
   }, [])
 
   // Rebuild scene
@@ -330,6 +493,8 @@ export function FloorPlanPixiCanvas({
     if (baseLayer) { baseLayer.removeChildren(); room.addChild(baseLayer) }
     if (boundaryLayer) { boundaryLayer.removeChildren(); room.addChild(boundaryLayer) }
     if (setupLayer) { setupLayer.removeChildren(); room.addChild(setupLayer) }
+    // The snap guide survives a rebuild and sits above every layer.
+    if (guideRef.current) { guideRef.current.clear(); room.addChild(guideRef.current) }
     // Two-layer lock: dim + disable the base plan while a setup is active
     if (baseLayer) { baseLayer.alpha = setupActive ? 0.5 : 1; baseLayer.eventMode = setupActive ? 'none' : 'auto' }
     const pxScale = vs.baseScale * vs.zoom || 1
@@ -706,11 +871,14 @@ export function FloorPlanPixiCanvas({
 
     // Setup items
     if (setupItems && setupLayer) {
+      // Read-only consumers (the worker floor plan) pass no handlers; showing a
+      // drag cursor there would promise an interaction that cannot commit.
+      const interactive = Boolean(cbRef.current.onSetupItemDragEnd || cbRef.current.onSetupItemClick)
       setupItems.forEach((item) => {
         const c = new PIXI.Container()
         c.x = item.x; c.y = item.y
         c.rotation = (item.rotation ?? 0) * (Math.PI / 180)
-        if (ghostMode) { c.alpha = 0.2; c.eventMode = 'none'; c.cursor = 'default' }
+        if (ghostMode || !interactive) { c.alpha = ghostMode ? 0.2 : 1; c.eventMode = 'none'; c.cursor = 'default' }
         else { c.eventMode = 'static'; c.cursor = 'pointer' }
         c.on('pointerover', () => { if (!setupSelectedIds?.includes(item.id)) c.alpha = 0.75 })
         c.on('pointerout', () => { c.alpha = 1 })
@@ -842,141 +1010,115 @@ export function FloorPlanPixiCanvas({
     }
   }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale])
 
-  function magneticSnap(
-    item: { x: number; y: number; width: number; depth: number; rotation: number },
-    targets: { x: number; y: number; width: number; depth: number; rotation: number }[],
-    threshold: number,
-  ): { x: number; y: number; rotation: number; targetIndex: number } | null {
-    if (targets.length === 0 || threshold <= 0) return null
-    const degToRad = Math.PI / 180
-
-    function corners(t: typeof item): [number, number][] {
-      const hw = t.width / 2; const hd = t.depth / 2
-      const cx = t.x + hw; const cy = t.y + hd
-      const cr = Math.cos(t.rotation * degToRad); const sr = Math.sin(t.rotation * degToRad)
-      const local: [number, number][] = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]
-      return local.map(([lx, ly]) => [cx + lx * cr - ly * sr, cy + lx * sr + ly * cr] as [number, number])
+  /**
+   * The section zone a dropped item's centre lands in, if any.
+   *
+   * `undefined` means "no boundary matched", so the editor keeps its own
+   * zone-based tagging rather than clearing a section the user set.
+   */
+  function sectionForDrop(x: number, y: number, width: number, depth: number): string | undefined {
+    if (!sectionBoundaries || sectionBoundaries.length === 0) return undefined
+    const cx = x + width / 2
+    const cy = y + depth / 2
+    for (const b of sectionBoundaries) {
+      const polyPoints = b.shape === 'POLYGON' && b.vertices
+        ? b.vertices.map((v: { x: number; y: number }) => ({ x: b.x + v.x, y: b.y + v.y }))
+        : b.shape === 'RECTANGLE'
+          ? [{ x: b.x, y: b.y }, { x: b.x + (b.width ?? 0), y: b.y }, { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) }, { x: b.x, y: b.y + (b.height ?? 0) }]
+          : []
+      if (polyPoints.length >= 3 && pointInPolygon(cx, cy, polyPoints)) return b.sectionId
     }
-
-    const itemCorners = corners(item)
-    const itemEdges = itemCorners.map((_, i) => {
-      const j = (i + 1) % 4
-      const [x1, y1] = itemCorners[i]
-      const [x2, y2] = itemCorners[j]
-      const dx = x2 - x1; const dy = y2 - y1
-      const len = Math.sqrt(dx * dx + dy * dy)
-      return { x1, y1, x2, y2, len, ux: dx / len, uy: dy / len,
-        nx: -dy / len, ny: dx / len, midX: (x1 + x2) / 2, midY: (y1 + y2) / 2 }
-    })
-
-    let bestDist = threshold
-    let best: { x: number; y: number; rotation: number; targetIndex: number } | null = null
-
-    for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
-      const target = targets[targetIndex]
-      const tc = corners(target)
-      for (let ti = 0; ti < 4; ti++) {
-        const tj = (ti + 1) % 4
-        const [tx1, ty1] = tc[ti]; const [tx2, ty2] = tc[tj]
-        const tdx = tx2 - tx1; const tdy = ty2 - ty1
-        const tlen = Math.sqrt(tdx * tdx + tdy * tdy)
-        const tux = tdx / tlen; const tuy = tdy / tlen
-
-        for (const ie of itemEdges) {
-          const dot = Math.abs(ie.ux * tux + ie.uy * tuy)
-          if (dot < 0.996) continue // ~5deg tolerance
-
-          const dmx = (tx1 + tx2) / 2 - ie.midX
-          const dmy = (ty1 + ty2) / 2 - ie.midY
-          const dist = Math.sqrt(dmx * dmx + dmy * dmy)
-          if (dist >= bestDist) continue
-
-          // Facing: normals should point toward each other
-          const facingDot = (ie.nx * dmx + ie.ny * dmy)
-          if (facingDot <= 0) continue // item normal points away from target edge
-
-          // Overlap check
-          const projMin = Math.min(tx1 * ie.ux + ty1 * ie.uy, tx2 * ie.ux + ty2 * ie.uy)
-          const projMax = Math.max(tx1 * ie.ux + ty1 * ie.uy, tx2 * ie.ux + ty2 * ie.uy)
-          const itemMin = ie.x1 * ie.ux + ie.y1 * ie.uy
-          const itemMax = itemMin + ie.len
-          if (itemMax <= projMin || projMax <= itemMin) continue
-
-          bestDist = dist
-          best = { x: item.x + dmx, y: item.y + dmy, rotation: target.rotation, targetIndex }
-        }
-      }
-    }
-    return best
+    return undefined
   }
 
+  /**
+   * Drag a base-plan fixture.
+   *
+   * Selection is deferred to pointerup: selecting on pointerdown used to rebuild
+   * the scene mid-gesture, detaching the very node being dragged. The node now
+   * follows the pointer 1:1 (no snapping, clamped to the room) and the snap is
+   * resolved once, on release.
+   */
   function attachElementDrag(node: PIXI.Container, el: ElementData) {
-    let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      e.stopPropagation()
+      if (e.button !== 0) return
       const inSectionsMode = cbRef.current.zoneDrawing
       const isFixtureEl = isFixture(el.type)
       if (inSectionsMode && !isFixtureEl) return
       if (!inSectionsMode && isFixtureEl) return
-      cbRef.current.onElementClick(el.id!, e.ctrlKey || e.shiftKey)
-      dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
-      const app = appRef.current
-      if (!app) return
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!dd) return; const st = stateRef.current
-        const vs = viewRef.current
-        let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { nx = edgeSnap(nx, el.width, st.gu); ny = edgeSnap(ny, el.depth, st.gu) }
-        node.x = nx; node.y = ny
+      e.stopPropagation()
+
+      // Read-only canvas (the worker floor plan): click opens the info panel,
+      // and there is no drag to commit.
+      if (!cbRef.current.onElementDragEnd) {
+        cbRef.current.onElementClick(el.id!, e.ctrlKey || e.shiftKey)
+        return
       }
-      const onUp = (ev: PIXI.FederatedPointerEvent) => {
-        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
-        if (!dd) return; const st = stateRef.current
-        const vs = viewRef.current
-        let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { rx = edgeSnap(rx, el.width, st.gu); ry = edgeSnap(ry, el.depth, st.gu) }
-        rx = Math.max(0, Math.min(rx, roomWidth - el.width))
-        ry = Math.max(0, Math.min(ry, roomDepth - el.depth))
-        // Magnetic snap against same-type furniture
-        if (!isFixture(el.type)) {
-          const others = elements.filter((e) => e.id !== el.id && e.type === el.type)
-            .map((e) => ({ x: e.x, y: e.y, width: e.width, depth: e.depth, rotation: e.rotation ?? 0 }))
-          const snap = magneticSnap({ x: rx, y: ry, width: el.width, depth: el.depth, rotation: el.rotation ?? 0 }, others, snapThreshold)
-          if (snap) {
-            rx = Math.max(0, Math.min(snap.x, roomWidth - el.width))
-            ry = Math.max(0, Math.min(snap.y, roomDepth - el.depth))
+
+      const start = { x: node.x, y: node.y }
+      const origin = { x: e.globalX, y: e.globalY }
+      const additive = Boolean(e.ctrlKey || e.shiftKey)
+      let allowSnap = stateRef.current.snap && !e.altKey
+      const targets: Placement[] = isFixtureEl
+        ? []
+        : elements
+            .filter((other) => other.id !== el.id && other.type === el.type)
+            .map((other) => ({ x: other.x, y: other.y, width: other.width, depth: other.depth, rotation: other.rotation ?? 0 }))
+
+      beginCanvasGesture('dragging', e, {
+        move: (ev) => {
+          allowSnap = stateRef.current.snap && !ev.altKey
+          const d = dragDelta(origin, gestureRef.current)
+          // Clamp every frame: a fast drag never leaves the room and jumps back.
+          const nx = clampToRoom(start.x + d.x, el.width, dimsRef.current.roomWidth)
+          const ny = clampToRoom(start.y + d.y, el.depth, dimsRef.current.roomDepth)
+          node.x = nx
+          node.y = ny
+          const drop = resolveDrop(nx, ny, el.width, el.depth, el.rotation ?? 0, targets, allowSnap)
+          showGuide(allowSnap && (drop.x !== nx || drop.y !== ny)
+            ? { x: drop.x, y: drop.y, w: el.width, h: el.depth }
+            : null)
+        },
+        finish: (gesture) => {
+          showGuide(null)
+          if (!gesture.moved) {
+            // A click, not a drag: revert the sub-slop preview so the node
+            // never drifts away from its committed position.
+            node.x = start.x
+            node.y = start.y
+            cbRef.current.onElementClick(el.id!, additive)
+            return
           }
-        }
-        // Section detection on drop
-        if (!isFixture(el.type) && sectionBoundaries && sectionBoundaries.length > 0) {
-          const cx = rx + el.width / 2; const cy = ry + el.depth / 2
-          for (const b of sectionBoundaries) {
-            const polyPoints = b.shape === 'POLYGON' && b.vertices
-              ? b.vertices.map((v) => ({ x: b.x + v.x, y: b.y + v.y }))
-              : b.shape === 'RECTANGLE'
-                ? [{ x: b.x, y: b.y }, { x: b.x + (b.width ?? 0), y: b.y }, { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) }, { x: b.x, y: b.y + (b.height ?? 0) }]
-                : []
-            if (polyPoints.length >= 3 && pointInPolygon(cx, cy, polyPoints)) {
-              cbRef.current.onElementDropToSection?.(el.id!, b.sectionId)
-              break
-            }
+          const d = dragDelta(origin, gesture)
+          const raw = {
+            x: clampToRoom(start.x + d.x, el.width, dimsRef.current.roomWidth),
+            y: clampToRoom(start.y + d.y, el.depth, dimsRef.current.roomDepth),
           }
-        }
-        cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
-      }
-      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+          const drop = resolveDrop(raw.x, raw.y, el.width, el.depth, el.rotation ?? 0, targets, allowSnap)
+          const rx = clampToRoom(drop.x, el.width, dimsRef.current.roomWidth)
+          const ry = clampToRoom(drop.y, el.depth, dimsRef.current.roomDepth)
+          // Select as part of the same commit, so the scene rebuilds only once.
+          // An additive drag of an item already in a multi-selection keeps that
+          // selection instead of collapsing it to one.
+          if (!(additive && selectedIds.includes(el.id!))) {
+            cbRef.current.onElementClick(el.id!, additive)
+          }
+          cbRef.current.onElementDragEnd?.(el.id!, rx, ry, sectionForDrop(rx, ry, el.width, el.depth))
+        },
+        cancel: () => {
+          node.x = start.x
+          node.y = start.y
+        },
+      })
     })
   }
 
   /**
    * Drag a chair around its table's outline.
    *
-   * The pointer is converted into the table's own local space and projected
-   * onto the nearest point of the outline, so the chair slides along the edge
-   * instead of floating free — and it follows a curve just as happily as a
-   * straight side. Right-click removes the chair.
+   * The chair follows the pointer during the drag (no state write, so the table
+   * is never rebuilt mid-gesture) and is projected onto the nearest point of the
+   * outline once, on release. Right-click removes it.
    */
   function attachChairDrag(
     node: PIXI.Container,
@@ -985,7 +1127,6 @@ export function FloorPlanPixiCanvas({
     geom: FurnitureGeometry,
   ) {
     const ring = outlineOf(geom)
-    let dragging = false
 
     node.on('rightdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
@@ -993,133 +1134,178 @@ export function FloorPlanPixiCanvas({
     })
 
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (e.button === 2) return
+      if (e.button !== 0) return
       e.stopPropagation()
-      dragging = true
-      const app = appRef.current
-      if (!app) return
-
       const parent = node.parent
+      const home = { x: node.x, y: node.y }
 
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!dragging || !parent) return
-        const local = parent.toLocal(ev.global)
-        const hit = projectToPerimeter(ring, local.x, local.y)
-        cbRef.current.onSetupChairMove?.(item.id, chairId, hit.t)
-      }
-
-      const onUp = () => {
-        dragging = false
-        app.stage.off('globalpointermove', onMove)
-        app.stage.off('pointerup', onUp)
-        app.stage.off('pointerupoutside', onUp)
-      }
-
-      app.stage.on('globalpointermove', onMove)
-      app.stage.on('pointerup', onUp)
-      app.stage.on('pointerupoutside', onUp)
+      beginCanvasGesture('dragging', e, {
+        move: (ev) => {
+          if (!parent) return
+          const local = parent.toLocal(ev.global)
+          node.x = local.x
+          node.y = local.y
+        },
+        finish: (gesture) => {
+          if (!gesture.moved || !parent) {
+            // A click on the chair: nothing to commit, undo the preview offset.
+            node.x = home.x
+            node.y = home.y
+            return
+          }
+          const local = parent.toLocal({ x: gesture.lastX, y: gesture.lastY })
+          const hit = projectToPerimeter(ring, local.x, local.y)
+          cbRef.current.onSetupChairMove?.(item.id, chairId, hit.t)
+        },
+        cancel: () => {
+          node.x = home.x
+          node.y = home.y
+        },
+      })
     })
   }
 
+  /**
+   * Drag a placed table.
+   *
+   * Six defects came together here (#194): selection on pointerdown detached the
+   * node, snapping ran every frame, the drop auto-joined, and clamping only
+   * happened at release. Now the placement tracks the pointer 1:1, clamps live,
+   * previews its snap in a guide and only joins on a deliberate overlap or with
+   * Shift held.
+   */
   function attachSetupItemDrag(node: PIXI.Container, item: SetupItemP) {
-    let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
+    if (!cbRef.current.onSetupItemDragEnd) {
+      // Read-only canvas (the worker floor plan): a click is all there is.
+      node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+        if (e.button !== 0 || !cbRef.current.onSetupItemClick) return
+        e.stopPropagation()
+        cbRef.current.onSetupItemClick(item.id, e.ctrlKey || e.shiftKey)
+      })
+      return
+    }
+
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (e.button !== 0) return
       e.stopPropagation()
-      cbRef.current.onSetupItemClick?.(item.id, e.ctrlKey || e.shiftKey)
-      dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
-      const app = appRef.current
-      if (!app) return
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!dd) return; const st = stateRef.current
-        const vs = viewRef.current
-        let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { nx = edgeSnap(nx, item.width, st.gu); ny = edgeSnap(ny, item.depth, st.gu) }
-        node.x = nx; node.y = ny
-      }
-      const onUp = (ev: PIXI.FederatedPointerEvent) => {
-        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
-        if (!dd) return; const st = stateRef.current
-        const vs = viewRef.current
-        let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { rx = edgeSnap(rx, item.width, st.gu); ry = edgeSnap(ry, item.depth, st.gu) }
-        rx = Math.max(0, Math.min(rx, roomWidth - item.width))
-        ry = Math.max(0, Math.min(ry, roomDepth - item.depth))
-        // Magnetic snap + auto-join against tables of the same furniture.
-        //
-        // Match on the resolved key, never on tableProfileId alone: after the
-        // furniture migration every placement has tableProfileId === null, so
-        // comparing those directly would make every table on the plan snap and
-        // join to every other one regardless of what it actually is.
-        let joinTargetId: string | null = null
-        const itemKey = item.furnitureItemId ?? item.tableProfileId ?? null
-        const candidates = itemKey
-          ? (setupItems ?? []).filter(
-              (s) => s.id !== item.id && (s.furnitureItemId ?? s.tableProfileId ?? null) === itemKey,
-            )
-          : []
-        const snap = magneticSnap(
-          { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 },
-          candidates.map((s) => ({ x: s.x, y: s.y, width: s.width, depth: s.depth, rotation: s.rotation ?? 0 })),
-          snapThreshold,
-        )
-        if (snap) {
-          rx = Math.max(0, Math.min(snap.x, roomWidth - item.width))
-          ry = Math.max(0, Math.min(snap.y, roomDepth - item.depth))
-          const target = candidates[snap.targetIndex]
-          // Join only if not already in the same group
-          if (target && (!item.tableGroupId || target.tableGroupId !== item.tableGroupId)) joinTargetId = target.id
-        }
-        // Section detection
-        if (sectionBoundaries && sectionBoundaries.length > 0) {
-          const cx = rx + item.width / 2; const cy = ry + item.depth / 2
-          for (const b of sectionBoundaries) {
-            const polyPoints = b.shape === 'POLYGON' && b.vertices
-              ? b.vertices.map((v: { x: number; y: number }) => ({ x: b.x + v.x, y: b.y + v.y }))
-              : b.shape === 'RECTANGLE'
-                ? [{ x: b.x, y: b.y }, { x: b.x + (b.width ?? 0), y: b.y }, { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) }, { x: b.x, y: b.y + (b.height ?? 0) }]
-                : []
-            if (polyPoints.length >= 3 && pointInPolygon(cx, cy, polyPoints)) {
-              // Section detected - tagged via onElementDropToSection (same callback works for setup items)
-              cbRef.current.onElementDropToSection?.(item.id, b.sectionId)
-              break
-            }
+
+      const start = { x: node.x, y: node.y }
+      const origin = { x: e.globalX, y: e.globalY }
+      const additive = Boolean(e.ctrlKey || e.shiftKey)
+      let allowSnap = stateRef.current.snap && !e.altKey
+      let shiftHeld = Boolean(e.shiftKey)
+
+      // Match on the resolved key, never on tableProfileId alone: after the
+      // furniture migration every placement has tableProfileId === null, so
+      // comparing those directly would make every table snap/join to every
+      // other one regardless of what it actually is.
+      const itemKey = item.furnitureItemId ?? item.tableProfileId ?? null
+      const candidates = itemKey
+        ? (setupItems ?? []).filter(
+            (s) => s.id !== item.id && (s.furnitureItemId ?? s.tableProfileId ?? null) === itemKey,
+          )
+        : []
+      const targets: Placement[] = candidates.map((s) => ({
+        x: s.x, y: s.y, width: s.width, depth: s.depth, rotation: s.rotation ?? 0,
+      }))
+      const joinCandidates: JoinCandidate[] = candidates.map((s, i) => ({
+        id: s.id,
+        groupId: s.tableGroupId ?? null,
+        placement: targets[i],
+      }))
+
+      beginCanvasGesture('dragging', e, {
+        move: (ev) => {
+          allowSnap = stateRef.current.snap && !ev.altKey
+          shiftHeld = Boolean(ev.shiftKey)
+          const d = dragDelta(origin, gestureRef.current)
+          const nx = clampToRoom(start.x + d.x, item.width, dimsRef.current.roomWidth)
+          const ny = clampToRoom(start.y + d.y, item.depth, dimsRef.current.roomDepth)
+          node.x = nx
+          node.y = ny
+          const drop = resolveDrop(nx, ny, item.width, item.depth, item.rotation ?? 0, targets, allowSnap)
+          showGuide(allowSnap && (drop.x !== nx || drop.y !== ny)
+            ? { x: drop.x, y: drop.y, w: item.width, h: item.depth }
+            : null)
+        },
+        finish: (gesture) => {
+          showGuide(null)
+          if (!gesture.moved) {
+            // A click, not a drag: revert the sub-slop preview so the node
+            // never drifts away from its committed position.
+            node.x = start.x
+            node.y = start.y
+            cbRef.current.onSetupItemClick?.(item.id, additive)
+            return
           }
-        }
-        cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry)
-        if (joinTargetId) cbRef.current.onSetupItemsJoin?.(item.id, joinTargetId)
-        dd = null
-      }
-      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+          const d = dragDelta(origin, gesture)
+          const raw = {
+            x: clampToRoom(start.x + d.x, item.width, dimsRef.current.roomWidth),
+            y: clampToRoom(start.y + d.y, item.depth, dimsRef.current.roomDepth),
+          }
+          const drop = resolveDrop(raw.x, raw.y, item.width, item.depth, item.rotation ?? 0, targets, allowSnap)
+          const rx = clampToRoom(drop.x, item.width, dimsRef.current.roomWidth)
+          const ry = clampToRoom(drop.y, item.depth, dimsRef.current.roomDepth)
+
+          // Join is explicit: a deliberate long overlap, or Shift held. A small
+          // accidental nudge against another table snaps flush but stays apart.
+          //
+          // Gated on snapping (Alt / GRID-off suppress it) and limited to the
+          // candidate the snap accepted, so a table dropped near — or on top
+          // of — a sibling is never grouped by accident.
+          const flush = { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 }
+          const joinTargetId = pickJoinTarget(flush, joinCandidates, {
+            allowSnap,
+            shiftHeld,
+            onlyIndex: drop.target,
+            currentGroupId: item.tableGroupId ?? null,
+          })
+
+          if (!(additive && (setupSelectedIds ?? []).includes(item.id))) {
+            cbRef.current.onSetupItemClick?.(item.id, additive)
+          }
+          cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry, sectionForDrop(rx, ry, item.width, item.depth))
+          if (joinTargetId) cbRef.current.onSetupItemsJoin?.(item.id, joinTargetId)
+        },
+        cancel: () => {
+          node.x = start.x
+          node.y = start.y
+        },
+      })
     })
   }
 
   function attachRotationHandle(handle: PIXI.Graphics, container: PIXI.Container, item: { id: string; rotation: number }) {
-    let rd: { startAng: number; startRot: number; px: number; py: number } | null = null
     handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (e.button !== 0) return
       e.stopPropagation()
-      const app = appRef.current
-      if (!app) return
-      const P = container.getGlobalPosition()
-      rd = { startAng: Math.atan2(e.globalY - P.y, e.globalX - P.x), startRot: item.rotation ?? 0, px: P.x, py: P.y }
-      let latest = item.rotation ?? 0
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!rd) return
-        const ang = Math.atan2(ev.globalY - rd.py, ev.globalX - rd.px)
-        let rot = rd.startRot + (ang - rd.startAng) * (180 / Math.PI)
-        rot = ((rot % 360) + 360) % 360
-        if (stateRef.current.snap) rot = Math.round(rot / 15) * 15
-        latest = rot
-        container.rotation = rot * (Math.PI / 180) // live visual feedback
-      }
-      const onUp = () => {
-        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
-        if (!rd) return
-        rd = null
-        cbRef.current.onSetupItemRotate?.(item.id, latest) // commit once
-      }
-      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+      const origin = container.getGlobalPosition()
+      const startAng = Math.atan2(e.globalY - origin.y, e.globalX - origin.x)
+      const startRot = item.rotation ?? 0
+      let latest = startRot
+
+      beginCanvasGesture('dragging', e, {
+        move: (ev) => {
+          if (!gestureRef.current.moved) return
+          const ang = Math.atan2(ev.globalY - origin.y, ev.globalX - origin.x)
+          let rotation = startRot + (ang - startAng) * (180 / Math.PI)
+          rotation = ((rotation % 360) + 360) % 360
+          if (stateRef.current.snap) rotation = Math.round(rotation / 15) * 15
+          latest = rotation
+          container.rotation = rotation * (Math.PI / 180) // live preview only
+        },
+        finish: (gesture) => {
+          if (!gesture.moved) {
+            // A click on the rotation handle: restore the live preview.
+            container.rotation = startRot * (Math.PI / 180)
+            return
+          }
+          cbRef.current.onSetupItemRotate?.(item.id, latest) // commit once
+        },
+        cancel: () => {
+          container.rotation = startRot * (Math.PI / 180)
+        },
+      })
     })
   }
 
@@ -1145,79 +1331,78 @@ export function FloorPlanPixiCanvas({
   }
 
   function attachResizeHandleDrag(handle: PIXI.Graphics, z: ZoneP, cfg: { dx_x: number; dx_y: number; dw: number; dh: number }, pxScale: number) {
-    let dd: { sx: number; sy: number; zx: number; zy: number; zw: number; zh: number } | null = null
-    const gu = stateRef.current.gu
     handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (e.button !== 0) return
       e.stopPropagation()
-      dd = { sx: e.globalX, sy: e.globalY, zx: z.x, zy: z.y, zw: z.width, zh: z.height }
-      const app = appRef.current
-      if (!app) return
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!dd) return
-        const vs = viewRef.current
-        let dx = (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let dy = (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        dx = gridSnap(dx, gu); dy = gridSnap(dy, gu)
-        let nx = dd.zx + dx * cfg.dx_x
-        let ny = dd.zy + dy * cfg.dx_y
-        let nw = dd.zw + dx * cfg.dw
-        let nh = dd.zh + dy * cfg.dh
+      const origin = { x: e.globalX, y: e.globalY }
+      const start = { x: z.x, y: z.y, width: z.width, height: z.height }
+      let started = false
+
+      const resizeTo = (gesture: GestureState) => {
+        // Sub-slop movement is still a click: no state change, no history entry.
+        if (!gesture.moved) return
+        if (!started) {
+          // Snapshot undo state only when a real resize starts; a plain click
+          // on the handle must not add a history entry.
+          started = true
+          cbRef.current.onZoneResizeStart?.()
+        }
+        const gu = stateRef.current.gu || 1
+        const d = dragDelta(origin, gesture)
+        const dx = gridSnap(d.x, gu)
+        const dy = gridSnap(d.y, gu)
+        let nx = start.x + dx * cfg.dx_x
+        let ny = start.y + dy * cfg.dx_y
+        let nw = start.width + dx * cfg.dw
+        let nh = start.height + dy * cfg.dh
         if (nw < gu) { if (cfg.dw < 0) nx -= gu - nw; nw = gu }
         if (nh < gu) { if (cfg.dh < 0) ny -= gu - nh; nh = gu }
         cbRef.current.onZoneResize?.(z.id, nx, ny, nw, nh)
       }
-      const onUp = (ev: PIXI.FederatedPointerEvent) => {
-        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
-        if (!dd) return
-        const vs = viewRef.current
-        let dx = (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let dy = (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        dx = gridSnap(dx, gu); dy = gridSnap(dy, gu)
-        let nx = dd.zx + dx * cfg.dx_x
-        let ny = dd.zy + dy * cfg.dx_y
-        let nw = dd.zw + dx * cfg.dw
-        let nh = dd.zh + dy * cfg.dh
-        if (nw < gu) { if (cfg.dw < 0) nx -= gu - nw; nw = gu }
-        if (nh < gu) { if (cfg.dh < 0) ny -= gu - nh; nh = gu }
-        cbRef.current.onZoneResize?.(z.id, nx, ny, nw, nh)
-        dd = null
-      }
-      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+
+      beginCanvasGesture('dragging', e, {
+        move: () => resizeTo(gestureRef.current),
+        finish: (gesture) => {
+          if (!gesture.moved) return
+          resizeTo(gesture)
+        },
+        cancel: () => {
+          if (started) cbRef.current.onZoneResize?.(z.id, start.x, start.y, start.width, start.height)
+        },
+      })
     })
   }
 
   function attachZoneDrag(node: PIXI.Container, z: ZoneP) {
-    let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
-    let moved = false
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (e.button !== 0) return
       e.stopPropagation()
-      dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
-      moved = false
-      const app = appRef.current
-      if (!app) return
-      const onMove = (ev: PIXI.FederatedPointerEvent) => {
-        if (!dd) return
-        moved = true
-        const vs = viewRef.current
-        let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        nx = gridSnap(nx, stateRef.current.gu); ny = gridSnap(ny, stateRef.current.gu)
-        node.x = nx; node.y = ny
-      }
-      const onUp = (ev: PIXI.FederatedPointerEvent) => {
-        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
-        if (!moved) { cbRef.current.onZoneClick(z.id) }
-        if (!dd) return
-        if (moved) {
-          const vs = viewRef.current
-          let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-          let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-          rx = gridSnap(rx, stateRef.current.gu); ry = gridSnap(ry, stateRef.current.gu)
-          cbRef.current.onZoneDragEnd(z.id, rx, ry)
-        }
-        dd = null
-      }
-      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+      const start = { x: node.x, y: node.y }
+
+      beginCanvasGesture('dragging', e, {
+        move: () => {
+          const gu = stateRef.current.gu || 1
+          const d = dragDelta({ x: gestureRef.current.startX, y: gestureRef.current.startY }, gestureRef.current)
+          node.x = gridSnap(start.x + d.x, gu)
+          node.y = gridSnap(start.y + d.y, gu)
+        },
+        finish: (gesture) => {
+          if (!gesture.moved) {
+            // A click: revert the sub-slop preview before selecting the zone.
+            node.x = start.x
+            node.y = start.y
+            cbRef.current.onZoneClick(z.id)
+            return
+          }
+          const gu = stateRef.current.gu || 1
+          const d = dragDelta({ x: gesture.startX, y: gesture.startY }, gesture)
+          cbRef.current.onZoneDragEnd(z.id, gridSnap(start.x + d.x, gu), gridSnap(start.y + d.y, gu))
+        },
+        cancel: () => {
+          node.x = start.x
+          node.y = start.y
+        },
+      })
     })
   }
 
