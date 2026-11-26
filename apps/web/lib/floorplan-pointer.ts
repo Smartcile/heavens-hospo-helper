@@ -240,8 +240,14 @@ function edgesOf(corners: [number, number][]): EdgeSegment[] {
   })
 }
 
-/** Bounding boxes overlap at all — used to skip stacking snaps. */
-function bboxesOverlap(a: Placement, b: Placement): boolean {
+/**
+ * Do two placements' bounding boxes overlap at all?
+ *
+ * Used to skip stacking snaps, and to refuse a join outright: two tables that
+ * share space are not "flush", they are on top of each other. Touching edges
+ * do not count as an overlap.
+ */
+export function placementsOverlap(a: Placement, b: Placement): boolean {
   return (
     a.x < b.x + b.width &&
     a.x + a.width > b.x &&
@@ -272,7 +278,7 @@ export function findMagneticSnap(
 
   for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
     const target = targets[targetIndex]
-    if (bboxesOverlap(item, target)) continue
+    if (placementsOverlap(item, target)) continue
     const targetCorners = cornersOf(target)
     for (let ti = 0; ti < 4; ti++) {
       const [tx1, ty1] = targetCorners[ti]
@@ -339,6 +345,12 @@ export function edgeOverlapRatio(a: Placement, b: Placement, coincidence = COINC
   for (const ae of aEdges) {
     for (const be of bEdges) {
       if (Math.abs(ae.ux * be.ux + ae.uy * be.uy) < PARALLEL_DOT) continue
+      // Only edges that face each other count. The stored normal points into
+      // the shape, so opposite-facing edges have a negative normal dot. Without
+      // this, two overlapping tables that share a row or column scored 0.875 on
+      // their same-side top/top (or left/left) edges and "joined" — the very
+      // accidental grouping #194 removes.
+      if (ae.nx * be.nx + ae.ny * be.ny >= 0) continue
       // Perpendicular distance between the two edge lines.
       const perp = Math.abs((be.midX - ae.midX) * ae.nx + (be.midY - ae.midY) * ae.ny)
       if (perp > coincidence) continue
@@ -369,14 +381,64 @@ export interface JoinOptions {
  * Join is explicit, never a side effect of a small move.
  *
  * A deliberate long overlap (≥ 60% of the shorter edge by default) joins, and
- * holding Shift joins a flush fit outright. A table nudged against another
- * stays ungrouped.
+ * holding Shift joins a flush fit outright. A table nudged into — or on top of
+ * — another stays ungrouped: overlapping placements are never joined.
  */
 export function shouldJoin(dragged: Placement, target: Placement, opts: JoinOptions = {}): boolean {
+  // Belt and braces alongside the face-the-edge rule: a placement that shares
+  // space with the target is not flush, however its edges happen to line up.
+  if (placementsOverlap(dragged, target)) return false
   const ratio = edgeOverlapRatio(dragged, target, opts.coincidence)
   if (ratio <= 0) return false
   if (opts.shiftHeld) return true
   return ratio >= (opts.minRatio ?? JOIN_OVERLAP_RATIO)
+}
+
+/** A same-furniture neighbour a drop could join. */
+export interface JoinCandidate {
+  id: string
+  placement: Placement
+  /** The candidate's current table group, so the item's own group is skipped. */
+  groupId?: string | null
+}
+
+export interface JoinGate {
+  /**
+   * Snapping is active — GRID on and Alt not held. Alt (or GRID off) must
+   * suppress joining as well as snapping.
+   */
+  allowSnap: boolean
+  /** Shift held — an explicit "join these" gesture. */
+  shiftHeld: boolean
+  /**
+   * The single candidate the snap accepted, if any. When set, only that one is
+   * considered, so a table the item merely overlaps is never joined.
+   */
+  onlyIndex?: number | null
+  currentGroupId?: string | null
+}
+
+/**
+ * Decide which candidate (if any) a dropped placement joins.
+ *
+ * Pure and explicit so the canvas cannot accidentally group tables on a small
+ * move: no snapping and no Shift means no join, overlapping placements never
+ * join, and only the snap's accepted candidate is checked when there is one.
+ */
+export function pickJoinTarget(
+  dragged: Placement,
+  candidates: JoinCandidate[],
+  gate: JoinGate,
+): string | null {
+  if (!gate.allowSnap && !gate.shiftHeld) return null
+  const only = gate.onlyIndex ?? null
+  for (let i = 0; i < candidates.length; i++) {
+    if (only !== null && i !== only) continue
+    const candidate = candidates[i]
+    if (gate.currentGroupId && candidate.groupId === gate.currentGroupId) continue
+    if (shouldJoin(dragged, candidate.placement, { shiftHeld: gate.shiftHeld })) return candidate.id
+  }
+  return null
 }
 
 // ── Gesture state machine ───────────────────────────────────────────────────

@@ -407,9 +407,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       // Deliberately not pushed to undo: grouping writes a TableGroup row
       // server-side immediately, while undo only rewrites local `tableGroupId`
       // values. Reverting it locally would leave items pointing at a
-      // soft-deleted group (or the group orphaned). Group/ungroup is reverted
-      // with UNGROUP, not Ctrl+Z. The drag-join above stays undoable because it
-      // uses a `new_group_*` id that is only materialised on SAVE.
+      // soft-deleted group (or the group orphaned). The whole stack is dropped
+      // instead, because older snapshots still carry the pre-group ids and
+      // restoring one would re-introduce that desync. Group/ungroup is reverted
+      // with UNGROUP, not Ctrl+Z. The drag-join stays undoable because it uses
+      // a `new_group_*` id that is only materialised on SAVE.
+      historyRef.current = { past: [], future: [] }
       setSetupItems(prev => prev.map(i =>
         setupSelectedIds.includes(i.id) ? { ...i, tableGroupId: group.id } : i
       ))
@@ -423,7 +426,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (!item?.tableGroupId) return
     await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups/${item.tableGroupId}`, { method: 'DELETE' })
     // Not pushed to undo for the same reason as GROUP (the delete already
-    // happened server-side). Re-group with GROUP.
+    // happened server-side); the stack is dropped so an older snapshot cannot
+    // restore the now-deleted group id. Re-group with GROUP.
+    historyRef.current = { past: [], future: [] }
     setSetupItems(prev => prev.map(i =>
       i.tableGroupId === item.tableGroupId ? { ...i, tableGroupId: null } : i
     ))

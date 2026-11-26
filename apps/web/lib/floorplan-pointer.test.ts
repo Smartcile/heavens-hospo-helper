@@ -13,7 +13,9 @@ import {
   clampPosition,
   findMagneticSnap,
   edgeOverlapRatio,
+  placementsOverlap,
   shouldJoin,
+  pickJoinTarget,
   JOIN_OVERLAP_RATIO,
   IDLE_GESTURE,
   beginGesture,
@@ -28,6 +30,7 @@ import {
   isTypingTarget,
   type ViewTransform,
   type Placement,
+  type JoinCandidate,
 } from './floorplan-pointer'
 
 /** baseScale 0.5, centred at (100,50), zoom 2, panned right 40 / up 20. */
@@ -221,6 +224,76 @@ describe('explicit join', () => {
 
   it('separated tables never join', () => {
     expect(shouldJoin({ ...table, x: 200 }, table)).toBe(false)
+  })
+
+  // Regression (second review): the join loop grouped overlapping tables
+  // because same-side collinear edges (top/top, left/left) counted as overlap.
+  it('scores overlapping same-row and same-column tables as zero', () => {
+    expect(edgeOverlapRatio({ ...table, x: 10 }, table)).toBe(0)
+    expect(edgeOverlapRatio({ ...table, y: 10 }, table)).toBe(0)
+  })
+
+  it('never joins a small horizontal or vertical move onto another table', () => {
+    expect(shouldJoin({ ...table, x: 10 }, table)).toBe(false)
+    expect(shouldJoin({ ...table, y: 10 }, table)).toBe(false)
+    expect(shouldJoin({ ...table, x: 10 }, table, { shiftHeld: true })).toBe(false)
+  })
+
+  it('keeps a deliberate along-edge overlap joinable', () => {
+    const partial = { ...table, x: 80, y: 10 }
+    expect(edgeOverlapRatio(partial, table)).toBeCloseTo(0.875, 6)
+    expect(shouldJoin(partial, table)).toBe(true)
+  })
+})
+
+describe('placementsOverlap', () => {
+  it('is false for flush neighbours that only touch', () => {
+    expect(placementsOverlap({ ...table, x: 80 }, table)).toBe(false)
+  })
+
+  it('is true for any shared space', () => {
+    expect(placementsOverlap({ ...table, x: 79 }, table)).toBe(true)
+    expect(placementsOverlap({ ...table, y: 10 }, table)).toBe(true)
+    expect(placementsOverlap(table, table)).toBe(true)
+  })
+})
+
+describe('pickJoinTarget', () => {
+  const flush = (): Placement => ({ ...table, x: 80 })
+  const candidates: JoinCandidate[] = [{ id: 'a', groupId: null, placement: table }]
+
+  it('joins a flush side-by-side drop when snapping is on', () => {
+    expect(pickJoinTarget(flush(), candidates, { allowSnap: true, shiftHeld: false })).toBe('a')
+  })
+
+  it('never joins with snapping off (Alt or GRID off)', () => {
+    expect(pickJoinTarget(flush(), candidates, { allowSnap: false, shiftHeld: false })).toBeNull()
+  })
+
+  it('Shift is an explicit join, even with snapping off', () => {
+    expect(pickJoinTarget(flush(), candidates, { allowSnap: false, shiftHeld: true })).toBe('a')
+  })
+
+  it('does not join an overlapping table, even with Shift held', () => {
+    const overlapping = { ...table, x: 10 }
+    expect(pickJoinTarget(overlapping, candidates, { allowSnap: true, shiftHeld: false })).toBeNull()
+    expect(pickJoinTarget(overlapping, candidates, { allowSnap: true, shiftHeld: true })).toBeNull()
+  })
+
+  it('only considers the snapped candidate when one is given', () => {
+    const two: JoinCandidate[] = [
+      { id: 'far', groupId: null, placement: { ...table, x: 400 } },
+      { id: 'flush', groupId: null, placement: table },
+    ]
+    expect(pickJoinTarget(flush(), two, { allowSnap: true, shiftHeld: false, onlyIndex: 1 })).toBe('flush')
+    expect(pickJoinTarget(flush(), two, { allowSnap: true, shiftHeld: false, onlyIndex: 0 })).toBeNull()
+  })
+
+  it('skips a table already in the dragged item’s group', () => {
+    const grouped: JoinCandidate[] = [{ id: 'a', groupId: 'g1', placement: table }]
+    expect(pickJoinTarget(flush(), grouped, {
+      allowSnap: true, shiftHeld: false, currentGroupId: 'g1',
+    })).toBeNull()
   })
 })
 

@@ -17,7 +17,7 @@ import {
   clampToRoom,
   snapValue,
   findMagneticSnap,
-  shouldJoin,
+  pickJoinTarget,
   beginGesture,
   moveGesture,
   endGesture,
@@ -26,6 +26,7 @@ import {
   IDLE_GESTURE,
   type GestureKind,
   type GestureState,
+  type JoinCandidate,
   type Placement,
   type Point,
 } from '@/lib/floorplan-pointer'
@@ -1207,6 +1208,11 @@ export function FloorPlanPixiCanvas({
       const targets: Placement[] = candidates.map((s) => ({
         x: s.x, y: s.y, width: s.width, depth: s.depth, rotation: s.rotation ?? 0,
       }))
+      const joinCandidates: JoinCandidate[] = candidates.map((s, i) => ({
+        id: s.id,
+        groupId: s.tableGroupId ?? null,
+        placement: targets[i],
+      }))
 
       beginCanvasGesture('dragging', e, {
         move: (ev) => {
@@ -1241,22 +1247,19 @@ export function FloorPlanPixiCanvas({
           const rx = clampToRoom(drop.x, item.width, dimsRef.current.roomWidth)
           const ry = clampToRoom(drop.y, item.depth, dimsRef.current.roomDepth)
 
-          // Join is explicit: a long deliberate overlap, or Shift held. A small
+          // Join is explicit: a deliberate long overlap, or Shift held. A small
           // accidental nudge against another table snaps flush but stays apart.
           //
-          // Evaluated against the *resolved* placement for every nearby
-          // candidate, so an exactly-flush release (nothing left to snap)
-          // still produces a join candidate.
-          let joinTargetId: string | null = null
+          // Gated on snapping (Alt / GRID-off suppress it) and limited to the
+          // candidate the snap accepted, so a table dropped near — or on top
+          // of — a sibling is never grouped by accident.
           const flush = { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 }
-          for (let i = 0; i < candidates.length; i++) {
-            const candidate = candidates[i]
-            if (item.tableGroupId && candidate.tableGroupId === item.tableGroupId) continue
-            if (shouldJoin(flush, targets[i], { shiftHeld })) {
-              joinTargetId = candidate.id
-              break
-            }
-          }
+          const joinTargetId = pickJoinTarget(flush, joinCandidates, {
+            allowSnap,
+            shiftHeld,
+            onlyIndex: drop.target,
+            currentGroupId: item.tableGroupId ?? null,
+          })
 
           if (!(additive && (setupSelectedIds ?? []).includes(item.id))) {
             cbRef.current.onSetupItemClick?.(item.id, additive)
@@ -1283,6 +1286,7 @@ export function FloorPlanPixiCanvas({
 
       beginCanvasGesture('dragging', e, {
         move: (ev) => {
+          if (!gestureRef.current.moved) return
           const ang = Math.atan2(ev.globalY - origin.y, ev.globalX - origin.x)
           let rotation = startRot + (ang - startAng) * (180 / Math.PI)
           rotation = ((rotation % 360) + 360) % 360
@@ -1291,7 +1295,11 @@ export function FloorPlanPixiCanvas({
           container.rotation = rotation * (Math.PI / 180) // live preview only
         },
         finish: (gesture) => {
-          if (!gesture.moved) return
+          if (!gesture.moved) {
+            // A click on the rotation handle: restore the live preview.
+            container.rotation = startRot * (Math.PI / 180)
+            return
+          }
           cbRef.current.onSetupItemRotate?.(item.id, latest) // commit once
         },
         cancel: () => {
@@ -1331,6 +1339,8 @@ export function FloorPlanPixiCanvas({
       let started = false
 
       const resizeTo = (gesture: GestureState) => {
+        // Sub-slop movement is still a click: no state change, no history entry.
+        if (!gesture.moved) return
         if (!started) {
           // Snapshot undo state only when a real resize starts; a plain click
           // on the handle must not add a history entry.
