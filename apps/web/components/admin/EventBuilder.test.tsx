@@ -109,6 +109,24 @@ describe('EventBuilder', () => {
     })
   })
 
+  it('persists the selected room in the save body', async () => {
+    render(
+      <EventBuilder
+        event={{ ...EVENT, areaId: 'a1' }}
+        venueId="v1"
+        refs={{ ...REFS, areas: [{ id: 'a1', name: 'FUNCTION ROOM' }] }}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('SAVE'))
+    await waitFor(() => {
+      const puts = (globalThis.fetch as unknown as { mock: { calls: [string, { method?: string; body?: string }][] } }).mock.calls
+        .filter(([, init]) => init?.method === 'PUT')
+      expect(JSON.parse(puts[0][1].body as string)).toMatchObject({ areaId: 'a1' })
+    })
+  })
+
   it('opens a BEO PDF variant in the in-app viewer', () => {
     renderBuilder()
     fireEvent.click(screen.getByText('FULL BEO'))

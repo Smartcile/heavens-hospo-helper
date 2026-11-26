@@ -10,31 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { formatDateDMY } from '@/lib/date-nav'
-
-interface SpaceItem {
-  kind: 'EVENT' | 'BOOKING'
-  id: string
-  title: string
-  start: string
-  end: string | null
-  pax: number | null
-  status: string | null
-  source: string | null
-}
-
-interface SpaceRoom {
-  areaId: string
-  name: string
-  colour: string | null
-  ownerVenueId: string | null
-  items: SpaceItem[]
-}
-
-interface SpaceView {
-  date: string
-  rooms: SpaceRoom[]
-  unassigned: SpaceItem[]
-}
+import type { SpaceDay, SpaceItem, SpaceRoom } from '@/lib/space-availability'
 
 function shiftDay(key: string, delta: number): string {
   const d = new Date(`${key}T00:00:00Z`)
@@ -54,7 +30,7 @@ export function SpaceAvailabilityModal({
   onClose: () => void
 }) {
   const [date, setDate] = useState(initialDate)
-  const [view, setView] = useState<SpaceView | null>(null)
+  const [view, setView] = useState<SpaceDay | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [hold, setHold] = useState<typeof EMPTY_HOLD | null>(null)
@@ -94,7 +70,6 @@ export function SpaceAvailabilityModal({
         partySize: hold.partySize,
         contactName: hold.name,
         source: 'PHONE',
-        notes: 'SPACE HOLD',
       }),
     })
     const d = await r.json().catch(() => ({}))

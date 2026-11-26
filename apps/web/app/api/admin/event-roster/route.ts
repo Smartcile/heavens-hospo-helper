@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         AND: [
           { OR: [{ endsAt: { gte: start } }, { endsAt: null, startsAt: { gte: start } }] },
           // Events of this venue, plus events in a room shared into it.
-          { OR: [{ venueId }, { area: { venueLinks: { some: { venueId, deletedAt: null } } } }] },
+          { OR: [{ venueId }, { area: { deletedAt: null, ...areaWhereForVenues([venueId]) } }] },
         ],
       },
       orderBy: { startsAt: 'asc' },

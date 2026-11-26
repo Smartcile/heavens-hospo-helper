@@ -35,7 +35,15 @@ describe('GET /api/admin/calendar-events union read', () => {
           deletedAt: null,
           OR: [
             { venueId: 'v1' },
-            { area: { venueLinks: { some: { venueId: 'v1', deletedAt: null } } } },
+            {
+              area: {
+                deletedAt: null,
+                OR: [
+                  { venueId: { in: ['v1'] } },
+                  { venueLinks: { some: { venueId: { in: ['v1'] }, deletedAt: null } } },
+                ],
+              },
+            },
           ],
         },
       }),

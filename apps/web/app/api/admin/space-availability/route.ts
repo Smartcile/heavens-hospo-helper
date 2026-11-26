@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { guardAccess } from '@/lib/permissions'
+import { guardAccess, canAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
 import { formatDateKey } from '@/lib/scheduling'
+import { getTodayDate } from '@/lib/utils'
 import { areaWhereForVenues } from '@/lib/area-scope'
 import { spaceAvailabilityForDay } from '@/lib/space-availability'
 
@@ -31,13 +32,22 @@ export async function GET(req: NextRequest) {
   if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
   if (!canUseVenue(session, venueId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const date = params.get('date') || formatDateKey(new Date())
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { timezone: true },
+  })
+
+  const date = params.get('date') || formatDateKey(getTodayDate(venue?.timezone))
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: 'A VALID DATE IS REQUIRED' }, { status: 400 })
   }
 
   const dayStart = new Date(`${date}T00:00:00Z`)
   const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+
+  // The space view joins events + bookings. Booking contact details are only
+  // shown to callers who may view bookings; everyone else sees a masked name.
+  const canViewBookings = await canAccess(session, req, 'bookings.bookings.view')
 
   const areaWhere = areaWhereForVenues([venueId])
   const areas = await prisma.area.findMany({
@@ -52,8 +62,10 @@ export async function GET(req: NextRequest) {
         deletedAt: null,
         startsAt: { lt: dayEnd },
         AND: [
-          { OR: [{ endsAt: { gte: dayStart } }, { endsAt: null, startsAt: { gte: dayStart } }] },
-          { OR: [{ venueId }, { area: { venueLinks: { some: { venueId, deletedAt: null } } } }] },
+          // A missing end is an open-ended hold: it occupies from its start day
+          // onward (the same rule as eventOccupiesDay).
+          { OR: [{ endsAt: { gte: dayStart } }, { endsAt: null, startsAt: { lt: dayEnd } }] },
+          { OR: [{ venueId }, { area: { deletedAt: null, ...areaWhere } }] },
         ],
       },
       select: {
@@ -73,10 +85,7 @@ export async function GET(req: NextRequest) {
         deletedAt: null,
         date: dayStart,
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        OR: [
-          { venueId },
-          { area: { venueLinks: { some: { venueId, deletedAt: null } } } },
-        ],
+        OR: [{ venueId }, { area: { deletedAt: null, ...areaWhere } }],
       },
       select: {
         id: true,
@@ -104,7 +113,9 @@ export async function GET(req: NextRequest) {
       sortOrder: a.sortOrder,
     })),
     events,
-    bookings,
+    bookings: canViewBookings
+      ? bookings
+      : bookings.map((b) => ({ ...b, contactName: 'RESERVED' })),
   })
 
   return NextResponse.json(view)

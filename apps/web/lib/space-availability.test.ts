@@ -59,6 +59,16 @@ describe('eventOccupiesDay', () => {
     expect(eventOccupiesDay(allDay, day)).toBe(true)
     expect(eventOccupiesDay(allDay, '2026-11-27')).toBe(false)
   })
+
+  it('treats a missing end as an open-ended hold from its start onward', () => {
+    const openEnded = event({
+      startsAt: new Date('2026-11-25T17:00:00Z'),
+      endsAt: null,
+    })
+    expect(eventOccupiesDay(openEnded, day)).toBe(true)
+    expect(eventOccupiesDay(openEnded, '2026-11-27')).toBe(true)
+    expect(eventOccupiesDay(event({ startsAt: new Date('2026-11-27T17:00:00Z'), endsAt: null }), day)).toBe(false)
+  })
 })
 
 describe('spaceAvailabilityForDay', () => {

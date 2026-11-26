@@ -293,6 +293,17 @@ export async function createEventFromTemplate(
     (b) => typeof b.type === 'string' && invalidBlockTypes([b], library).length === 0,
   )
 
+  // A template's default layout already names a room — carry that room onto the
+  // created event so its space view is correct immediately (#189).
+  let defaultAreaId: string | null = null
+  if (tpl.defaultSetupId) {
+    const setup = await prisma.floorPlanSetup.findFirst({
+      where: { id: tpl.defaultSetupId, deletedAt: null },
+      select: { areaId: true },
+    })
+    defaultAreaId = setup?.areaId ?? null
+  }
+
   return prisma.event.create({
     data: {
       venueId,
@@ -304,6 +315,7 @@ export async function createEventFromTemplate(
       menuId: tpl.defaultMenuId ?? null,
       serviceId: tpl.defaultServiceId ?? null,
       setupId: tpl.defaultSetupId ?? null,
+      areaId: defaultAreaId,
       templateId: tpl.id,
       contactName: overrides.contactName ?? null,
       contactEmail: overrides.contactEmail ?? null,

@@ -242,6 +242,7 @@ export function EventBuilder({
         menuId: d.menuId,
         serviceId: d.serviceId,
         setupId: d.setupId,
+        areaId: d.areaId ?? null,
         pushToBookings: d.pushToBookings,
         depositAmount: d.depositAmount === '' ? null : Number(d.depositAmount),
         paymentStatus: d.paymentStatus,

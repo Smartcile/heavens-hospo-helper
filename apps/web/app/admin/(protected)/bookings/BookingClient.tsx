@@ -1163,7 +1163,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
             <Select label={editing ? 'SERVICE' : 'SERVICE (REQUIRED)'} value={formServiceId} onChange={(e) => pickService(e.target.value)}
               options={[{ value: '', label: '— SELECT A SERVICE —' }, ...services.map((s) => ({ value: s.id, label: s.name }))]} />
           )}
-          <Select label="ROOM (OPTIONAL)" value={formAreaId} onChange={(e) => setFormAreaId(e.target.value)}
+          <Select label="ROOM (OPTIONAL)" aria-label="Room" value={formAreaId} onChange={(e) => setFormAreaId(e.target.value)}
             options={[{ value: '', label: '— NO ROOM —' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]} />
           {!editing && formServiceId && (
             <Panel variant="outline" padding="xs" className="space-y-1.5">

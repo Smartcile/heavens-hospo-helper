@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       // Own events + events in a room shared into this venue (#189).
       OR: [
         { venueId: scoped.venueId },
-        { area: { venueLinks: { some: { venueId: scoped.venueId, deletedAt: null } } } },
+        { area: { deletedAt: null, ...areaWhereForVenues([scoped.venueId]) } },
       ],
     },
     select: { id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true },

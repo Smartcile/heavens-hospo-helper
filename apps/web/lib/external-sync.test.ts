@@ -107,6 +107,39 @@ describe('external-sync', () => {
       expect(mockVenueUpdate).toHaveBeenCalled()
     })
 
+    it('stamps the feed’s room on imported events (create + update-if-null)', async () => {
+      mockVenueFindFirst.mockResolvedValue({ id: 'v1', googleCalendarUrl: null, icalFeedUrl: null })
+      mockFeedFindMany.mockResolvedValue([
+        {
+          id: 'feed-1',
+          areaId: 'area-1',
+          name: 'TE KAWAU ROOM',
+          source: 'ICAL',
+          url: 'https://example.com/room.ics',
+          floorPlan: null,
+        },
+      ])
+      mockFetchIcs.mockResolvedValue([
+        {
+          uid: 'ev-1',
+          title: 'town hall',
+          description: null,
+          location: null,
+          startsAt: new Date('2025-11-15T09:00:00Z'),
+          endsAt: new Date('2025-11-15T17:00:00Z'),
+          allDay: false,
+        },
+      ])
+
+      await syncVenueCalendar('v1')
+
+      expect(mockEventUpsert.mock.calls[0][0].create.areaId).toBe('area-1')
+      expect(mockEventSweep).toHaveBeenNthCalledWith(1, {
+        where: { venueId: 'v1', source: 'ICAL', uid: 'ev-1', areaId: null },
+        data: { areaId: 'area-1' },
+      })
+    })
+
     it('keeps other feeds intact when one room feed fails', async () => {
       mockVenueFindFirst.mockResolvedValue({ id: 'v1', googleCalendarUrl: null, icalFeedUrl: null })
       mockFeedFindMany.mockResolvedValue([

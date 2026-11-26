@@ -51,7 +51,31 @@ describe('POST /api/admin/bookings — room hold (#189)', () => {
     const res = await POST(holdRequest('a1'))
     expect(res.status).toBe(201)
     expect(prisma.booking.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ areaId: 'a1', contactName: 'JONES' }),
+      data: expect.objectContaining({ areaId: 'a1', contactName: 'JONES', notes: 'SPACE HOLD', source: 'PHONE' }),
+      include: { tables: true },
+    })
+  })
+
+  it('stamps the hold marker server-side even if the client sends its own source/notes', async () => {
+    const req = new NextRequest('http://localhost/api/admin/bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hold: true,
+        date: '2026-11-26',
+        startTime: '18:00',
+        endTime: '20:00',
+        partySize: 6,
+        contactName: 'JONES',
+        areaId: 'a1',
+        source: 'ONLINE',
+        notes: 'NOT A HOLD',
+      }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(201)
+    expect(prisma.booking.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ notes: 'SPACE HOLD', source: 'PHONE' }),
       include: { tables: true },
     })
   })

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
   prisma: {
     area: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    areaVenue: { updateMany: vi.fn() },
     calendarFeed: { updateMany: vi.fn() },
     calendarEvent: { updateMany: vi.fn() },
     $transaction: vi.fn(),
@@ -39,6 +40,7 @@ beforeEach(() => {
   })
   prisma.calendarFeed.updateMany.mockResolvedValue({ count: 1 })
   prisma.calendarEvent.updateMany.mockResolvedValue({ count: 2 })
+  prisma.areaVenue.updateMany.mockResolvedValue({ count: 1 })
   prisma.area.update.mockResolvedValue({ id: 'j1' })
   prisma.$transaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops))
 })
@@ -141,6 +143,10 @@ describe('POST /api/admin/areas/cleanup', () => {
     expect(prisma.calendarFeed.updateMany).toHaveBeenCalledWith({
       where: { areaId: 'j1', deletedAt: null },
       data: { areaId: null, roomDismissed: true },
+    })
+    expect(prisma.areaVenue.updateMany).toHaveBeenCalledWith({
+      where: { areaId: 'j1', deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
     })
   })
 

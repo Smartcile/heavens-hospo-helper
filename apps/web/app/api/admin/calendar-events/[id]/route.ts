@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
+import { areaWhereForVenues } from '@/lib/area-scope'
 import { validateManualEvent } from '@/lib/manual-event'
 import { saveEventStaffing } from '@/lib/open-shifts.server'
 
@@ -95,8 +96,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   let area: { id: string; name: string; floorPlan: { slug: string; name: string } | null } | null = null
   if (fields.areaId) {
+    // A room shared into this venue is a valid choice, same as on create.
     area = await prisma.area.findFirst({
-      where: { id: fields.areaId, venueId: event.venueId, deletedAt: null },
+      where: { id: fields.areaId, deletedAt: null, ...areaWhereForVenues([event.venueId]) },
       select: { id: true, name: true, floorPlan: { select: { slug: true, name: true } } },
     })
     if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })

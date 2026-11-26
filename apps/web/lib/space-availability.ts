@@ -84,10 +84,13 @@ export function eventOccupiesDay(event: Pick<SpaceEventLike, 'startsAt' | 'endsA
   const dayStart = new Date(`${dayKey}T00:00:00Z`)
   const dayEnd = new Date(dayStart.getTime() + DAY_MS)
   const start = event.startsAt
-  let end = event.endsAt ?? event.startsAt
+  if (start.getTime() >= dayEnd.getTime()) return false
+  // No end = an open-ended hold: it occupies every day from its start onward.
+  if (!event.endsAt) return true
+  let end = event.endsAt
   // All-day DTEND is exclusive (the roster convention), so pull it back a day.
   if (event.allDay && end.getTime() > start.getTime()) end = new Date(end.getTime() - DAY_MS)
-  return start.getTime() < dayEnd.getTime() && end.getTime() >= dayStart.getTime()
+  return end.getTime() >= dayStart.getTime()
 }
 
 function eventItem(event: SpaceEventLike): SpaceItem {

@@ -55,7 +55,18 @@ describe('GET /api/admin/event-roster union read', () => {
     expect(res.status).toBe(200)
     const where = prisma.calendarEvent.findMany.mock.calls[0][0].where
     expect(where.AND).toContainEqual({
-      OR: [{ venueId: 'v1' }, { area: { venueLinks: { some: { venueId: 'v1', deletedAt: null } } } }],
+      OR: [
+        { venueId: 'v1' },
+        {
+          area: {
+            deletedAt: null,
+            OR: [
+              { venueId: { in: ['v1'] } },
+              { venueLinks: { some: { venueId: { in: ['v1'] }, deletedAt: null } } },
+            ],
+          },
+        },
+      ],
     })
   })
 })
