@@ -40,7 +40,16 @@ export async function GET(req: NextRequest) {
     }),
     prisma.area.findMany({
       where: { venueId, deletedAt: null },
-      select: { id: true, name: true, colour: true, capacity: true, floorPlanId: true, sortOrder: true, notes: true },
+      select: {
+        id: true,
+        name: true,
+        colour: true,
+        capacity: true,
+        floorPlanId: true,
+        sortOrder: true,
+        notes: true,
+        _count: { select: { events: true } },
+      },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
   ])
@@ -71,6 +80,7 @@ export async function GET(req: NextRequest) {
       sortOrder: a.sortOrder,
       notes: a.notes,
       feedCount: feeds.filter((f) => f.areaId === a.id).length,
+      eventCount: a._count.events,
     })),
   })
 }
@@ -100,6 +110,17 @@ export async function POST(req: NextRequest) {
   const name = (body?.name ?? '').trim().toUpperCase()
   if (!name) return NextResponse.json({ error: 'ROOM NAME IS REQUIRED' }, { status: 400 })
 
+  // A calendar must say which room it belongs to — or explicitly UNASSIGNED.
+  // Omitting the field is an error so a client can never silently create a
+  // feed the boot migration would later turn into a room.
+  if (body?.areaId === undefined) {
+    return NextResponse.json(
+      { error: 'CHOOSE A ROOM OR UNASSIGNED — A CALENDAR NEVER CREATES A ROOM' },
+      { status: 400 },
+    )
+  }
+  const areaId = (body.areaId ?? '').trim() || null
+
   const drafts = expandRoomFeed(name, body?.url ?? '')
   if (drafts.length === 0) {
     return NextResponse.json(
@@ -116,9 +137,9 @@ export async function POST(req: NextRequest) {
     if (!plan) return NextResponse.json({ error: 'UNKNOWN FLOOR PLAN' }, { status: 400 })
   }
 
-  if (body?.areaId) {
+  if (areaId) {
     const area = await prisma.area.findFirst({
-      where: { id: body.areaId, venueId, deletedAt: null },
+      where: { id: areaId, venueId, deletedAt: null },
       select: { id: true },
     })
     if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })
@@ -136,7 +157,9 @@ export async function POST(req: NextRequest) {
       prisma.calendarFeed.create({
         data: {
           venueId,
-          areaId: body?.areaId || null,
+          areaId,
+          // An explicit UNASSIGNED choice must not be re-inferred on boot.
+          roomDismissed: areaId === null,
           name: draft.name,
           url: draft.url,
           source: draft.source,

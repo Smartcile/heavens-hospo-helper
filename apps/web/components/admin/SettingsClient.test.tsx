@@ -85,6 +85,26 @@ describe('SettingsClient tabs', () => {
     expect((await screen.findAllByText('UNITS OF MEASURE')).length).toBeGreaterThan(0)
   })
 
+  it('shows the ROOMS tab and mounts it from the URL', async () => {
+    mocks.params = new URLSearchParams('tab=rooms')
+    render(<SettingsClient {...props} />)
+    expect(screen.getByRole('button', { name: 'ROOMS' })).toBeTruthy()
+    expect(await screen.findByText(/A ROOM IS A PHYSICAL EVENT SPACE/)).toBeTruthy()
+  })
+
+  it('hides ROOMS from a manager without the floorplans grant', () => {
+    mocks.params = new URLSearchParams('tab=rooms')
+    render(<SettingsClient {...props} role="MANAGER" grantedAreas={['compliance']} />)
+    expect(screen.queryByRole('button', { name: 'ROOMS' })).toBeNull()
+    // Landing on the hidden tab falls back to GENERAL.
+    expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
+  })
+
+  it('shows ROOMS to a manager with the floorplans grant', () => {
+    render(<SettingsClient {...props} role="MANAGER" grantedAreas={['floorplans']} />)
+    expect(screen.getByRole('button', { name: 'ROOMS' })).toBeTruthy()
+  })
+
 })
 
 describe('SettingsClient — worker session timeout', () => {
