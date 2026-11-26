@@ -1198,4 +1198,39 @@ describe('WorkerTasksClient', () => {
       expect(push).toBeDefined()
     })
   })
+
+  it('undoes a deferred push from the tappable deferred strip', async () => {
+    const fetchMock = vi.mocked(global.fetch)
+    fetchMock.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks' && (init?.method ?? 'GET') === 'GET') {
+        return json({
+          tasks: [],
+          checklists: [],
+          deferred: [{ taskId: 't7', title: 'DEEP CLEAN', pushedTo: '2026-11-28' }],
+          deferredCount: 1,
+          firstName: 'BAR',
+        })
+      }
+      if (u === '/api/worker/tasks/t7/push' && init?.method === 'DELETE') {
+        return json({ success: true })
+      }
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText(/1 DEFERRED/)).toBeDefined())
+    expect(screen.queryByText('DEEP CLEAN')).toBeNull()
+
+    fireEvent.click(screen.getByText(/1 DEFERRED/))
+    await waitFor(() => expect(screen.getByText('DEEP CLEAN')).toBeDefined())
+    fireEvent.click(screen.getByText('UNDO'))
+
+    await waitFor(() => {
+      const undo = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/tasks/t7/push' && (init as RequestInit)?.method === 'DELETE',
+      )
+      expect(undo).toBeDefined()
+    })
+  })
 })

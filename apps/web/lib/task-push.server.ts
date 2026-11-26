@@ -14,6 +14,7 @@ import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.serv
 import {
   isPushAllowed,
   normalisePushAlertAfter,
+  normalisePushNote,
   openPushList,
   pushStreakCount,
   shouldAlert,
@@ -61,6 +62,18 @@ export async function pushTaskToTomorrow(opts: {
   }
 
   const { today, nowHHmm } = await venueClock(opts.venueId)
+
+  // A task already completed today is settled. Deferring it would create a
+  // second, contradictory record for the same day and could overwrite the
+  // completion's in-progress cleanup, so refuse it outright.
+  const completedToday = await prisma.taskCompletion.findFirst({
+    where: { taskId: opts.taskId, scheduledDate: today, deletedAt: null },
+    select: { id: true },
+  })
+  if (completedToday) {
+    return { ok: false, status: 409, error: 'TASK ALREADY COMPLETED TODAY' }
+  }
+
   const { checklists } = await applicableChecklistsForStaff({
     staffId: opts.staffId,
     venueId: opts.venueId,
@@ -75,6 +88,7 @@ export async function pushTaskToTomorrow(opts: {
     events: c.events,
     allowPushToTomorrow: c.allowPushToTomorrow,
     pushAlertAfter: c.pushAlertAfter,
+    departmentId: c.departmentId,
   }))
   const openList = openPushList(lists, { today, nowHHmm })
   if (!openList) {
@@ -87,7 +101,15 @@ export async function pushTaskToTomorrow(opts: {
   const todayKey = formatDateKey(today)
   const pushedTo = tomorrowKey(todayKey)
   const toDate = new Date(`${pushedTo}T00:00:00.000Z`)
-  const note = opts.note?.trim() || null
+  const note = normalisePushNote(opts.note)
+
+  // Did this push create the shared progress row, or does a genuine PARTIAL
+  // already exist? Undo removes only a row the push itself created.
+  const existingProgress = await prisma.taskProgress.findUnique({
+    where: { taskId: opts.taskId },
+    select: { id: true },
+  })
+  const createdProgress = !existingProgress
 
   const hideTask = () =>
     prisma.taskProgress.upsert({
@@ -108,36 +130,48 @@ export async function pushTaskToTomorrow(opts: {
       },
     })
 
-  // Re-pushing the same task on the same day is a no-op: it is already hidden.
-  const existingToday = await prisma.taskPush.findFirst({
-    where: { taskId: opts.taskId, fromDate: today, deletedAt: null },
-    select: { id: true, toDate: true },
+  // Same-day guard + insert in one best-effort transaction. There is deliberately
+  // no partial unique index on an open push (a soft-deleted row must be reusable
+  // for the same task/day), so two truly concurrent requests can still both pass
+  // this lookup and insert a duplicate; the UI hides the task after the first,
+  // which makes that a rare API-level race rather than a floor workflow.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.taskPush.findFirst({
+      where: { taskId: opts.taskId, fromDate: today, deletedAt: null },
+      select: { id: true, toDate: true },
+    })
+    if (existing) return { kind: 'existing' as const, push: existing }
+    const created = await tx.taskPush.create({
+      data: {
+        taskId: opts.taskId,
+        staffId: opts.staffId,
+        venueId: opts.venueId,
+        fromDate: today,
+        toDate,
+        note,
+        createdProgress,
+      },
+    })
+    return { kind: 'created' as const, push: created }
   })
-  if (existingToday) {
-    await hideTask()
+
+  await hideTask()
+
+  // Re-pushing the same task on the same day is a no-op: it is already hidden.
+  if (outcome.kind === 'existing') {
     const pushes = await prisma.taskPush.findMany({
       where: { taskId: opts.taskId, deletedAt: null },
       select: { fromDate: true, toDate: true, alertedAt: true },
     })
     return {
       ok: true,
-      pushedTo: formatDateKey(existingToday.toDate),
+      pushedTo: formatDateKey(outcome.push.toDate),
       streak: pushStreakCount(pushes),
       alertRaised: false,
     }
   }
 
-  await hideTask()
-  const push = await prisma.taskPush.create({
-    data: {
-      taskId: opts.taskId,
-      staffId: opts.staffId,
-      venueId: opts.venueId,
-      fromDate: today,
-      toDate,
-      note,
-    },
-  })
+  const push = outcome.push
 
   const pushes = await prisma.taskPush.findMany({
     where: { taskId: opts.taskId, deletedAt: null },
@@ -154,7 +188,10 @@ export async function pushTaskToTomorrow(opts: {
       await prisma.notice.create({
         data: {
           venueId: opts.venueId,
-          departmentId: task.departmentId,
+          // Fall back to the list's department: a task with no department would
+          // otherwise raise a venue-wide notice by accident. Null stays
+          // venue-wide by design only when neither carries a department.
+          departmentId: task.departmentId ?? openList.departmentId ?? null,
           title: `${task.title} — PUSHED ${streak}×`.toUpperCase().slice(0, 120),
           body: [
             `"${task.title}" has been finished tomorrow ${streak} times in a row on "${openList.name}".`,
@@ -183,8 +220,9 @@ export async function pushTaskToTomorrow(opts: {
 }
 
 /**
- * Undo today's push: soft-delete the audit row and clear `pushedToDate` so the
- * task returns to today's floor. An earlier PARTIAL stays in progress.
+ * Undo today's push: soft-delete the audit row and un-hide the task. A progress
+ * row the PUSH created is removed (no synthetic PARTIAL); one that already
+ * existed is kept and only has `pushedToDate` cleared.
  */
 export async function undoTaskPush(opts: {
   taskId: string
@@ -207,7 +245,7 @@ export async function undoTaskPush(opts: {
       deletedAt: null,
     },
     orderBy: { createdAt: 'desc' },
-    select: { id: true },
+    select: { id: true, createdProgress: true },
   })
   if (!push) return { ok: false, status: 404, error: 'NO PUSH TO UNDO TODAY' }
 
@@ -215,9 +253,16 @@ export async function undoTaskPush(opts: {
     where: { id: push.id },
     data: { deletedAt: new Date() },
   })
-  await prisma.taskProgress.updateMany({
-    where: { taskId: opts.taskId, pushedToDate: { not: null } },
-    data: { pushedToDate: null },
-  })
+  if (push.createdProgress) {
+    // The push itself created the in-progress row, so removing it restores the
+    // pre-push state exactly. TaskProgress is current-state (no soft delete);
+    // the stale sweep already hard-deletes rows the same way.
+    await prisma.taskProgress.deleteMany({ where: { taskId: opts.taskId } })
+  } else {
+    await prisma.taskProgress.updateMany({
+      where: { taskId: opts.taskId, pushedToDate: { not: null } },
+      data: { pushedToDate: null },
+    })
+  }
   return { ok: true }
 }

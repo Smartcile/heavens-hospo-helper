@@ -762,6 +762,10 @@ model TaskPush {
   fromDate  DateTime  @db.Date
   toDate    DateTime  @db.Date
   note      String?
+  // True when THIS push is what created the shared TaskProgress row. Undo then
+  // removes the row; when an earlier PARTIAL already existed it is kept (only
+  // `pushedToDate` is cleared).
+  createdProgress Boolean @default(false)
   // Set when this push (or the streak it belongs to) raised the manager alert.
   alertedAt DateTime?
   createdAt DateTime  @default(now())

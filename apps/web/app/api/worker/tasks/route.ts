@@ -3,7 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
-import { carryTaskToday, isProgressLive, isStaleProgress, isPushedToFuture } from '@/lib/task-progress'
+import { carryTaskToday, isProgressLive, isStaleProgress, isPushedToFuture, progressDayKey } from '@/lib/task-progress'
 import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf, summariseCalendarEvent } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
 import { isPushAllowed, openPushList, type PushListLike } from '@/lib/task-push'
@@ -236,11 +236,16 @@ export async function GET(req: NextRequest) {
       completedToday: t.taskCompletions.length > 0,
     }),
   )
-  // Work deliberately deferred to a later day — shown as a count, never as a
-  // task on today's list.
-  const deferredCount = tasks.filter(
-    (t) => isPushedToFuture(t.progress?.pushedToDate, todayKey) && t.taskCompletions.length === 0,
-  ).length
+  // Work deliberately deferred to a later day — shown as a count and an UNDO
+  // strip, never as a task on today's list.
+  const deferred = tasks
+    .filter((t) => isPushedToFuture(t.progress?.pushedToDate, todayKey) && t.taskCompletions.length === 0)
+    .map((t) => ({
+      taskId: t.id,
+      title: t.title,
+      pushedTo: progressDayKey(t.progress?.pushedToDate) ?? '',
+    }))
+  const deferredCount = deferred.length
 
   // Best-effort reset of this floor's stale today-only partials. Only runs when
   // a loaded row is actually stale, and `isStaleProgress` never flags a
@@ -427,6 +432,7 @@ export async function GET(req: NextRequest) {
     tasks: result,
     checklists: checklistResult,
     deferredCount,
+    deferred,
     firstName: session.firstName,
     staffId: session.staffId,
     access,

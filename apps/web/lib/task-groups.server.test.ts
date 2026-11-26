@@ -42,6 +42,7 @@ function checklist(overrides: Record<string, unknown> = {}) {
       { taskId: 't3', groupLabel: 'OUTSIDE' },
       { taskId: 'settled', groupLabel: 'OUTSIDE' },
       { taskId: 'off', groupLabel: 'OUTSIDE' },
+      { taskId: 'pushed', groupLabel: 'OUTSIDE' },
       { taskId: 'inside', groupLabel: null },
     ],
     ...overrides,
@@ -121,8 +122,38 @@ describe('bulkNotRequiredGroup', () => {
     })
   })
 
-  it('settles every eligible task with one NOT_REQUIRED completion each', async () => {
-    prisma.task.findMany.mockResolvedValue([task('t1'), task('t2'), task('t3'), task('settled'), task('off', {
+  it('skips a task pushed to tomorrow instead of settling it (#143)', async () => {
+    prisma.task.findMany.mockResolvedValue([
+      task('pushed', {
+        progress: {
+          progressDate: TODAY,
+          pushedToDate: new Date('2026-11-11T00:00:00.000Z'),
+        },
+      }),
+    ])
+    const created: string[] = []
+    prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        taskCompletion: {
+          create: async (arg: { data: { taskId: string } }) => {
+            created.push(arg.data.taskId)
+            return { id: 'c' }
+          },
+        },
+        taskProgress: { deleteMany: async () => ({ count: 0 }) },
+      }),
+    )
+
+    const result = await bulkNotRequiredGroup(baseInput)
+
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.completed).toEqual([])
+    expect(result.skipped).toEqual([{ taskId: 'pushed', reason: 'NOT DUE TODAY' }])
+    expect(created).toEqual([])
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('settles every eligible task with one NOT_REQUIRED completion each', async () => {    prisma.task.findMany.mockResolvedValue([task('t1'), task('t2'), task('t3'), task('settled'), task('off', {
       scheduleType: 'WEEKLY',
       scheduleDays: [],
     })])

@@ -4,6 +4,7 @@ import {
   isHiddenToday,
   isPushAllowed,
   normalisePushAlertAfter,
+  normalisePushNote,
   openPushList,
   pushStreakCount,
   shouldAlert,
@@ -120,6 +121,16 @@ describe('normalisePushAlertAfter', () => {
     expect(normalisePushAlertAfter(2.6)).toBe(3)
     expect(normalisePushAlertAfter(0)).toBe(DEFAULT_PUSH_ALERT_AFTER)
     expect(normalisePushAlertAfter(999)).toBe(50)
+  })
+})
+
+describe('normalisePushNote', () => {
+  it('trims, caps at 500 characters and blanks to null', () => {
+    expect(normalisePushNote('  needs a second coat  ')).toBe('needs a second coat')
+    expect(normalisePushNote('   ')).toBeNull()
+    expect(normalisePushNote(null)).toBeNull()
+    expect(normalisePushNote(42)).toBeNull()
+    expect(normalisePushNote('x'.repeat(600))).toHaveLength(500)
   })
 })
 

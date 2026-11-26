@@ -295,6 +295,9 @@ describe('GET /api/worker/tasks — day-aware partials', () => {
 
     expect(body.tasks).toHaveLength(0)
     expect(body.deferredCount).toBe(1)
+    expect(body.deferred).toEqual([
+      { taskId: 't1', title: 'BACK WASH HEADS', pushedTo: '2026-11-09' },
+    ])
     // A future push must never be swept as a stale partial.
     expect(prisma.taskProgress.deleteMany).not.toHaveBeenCalled()
   })

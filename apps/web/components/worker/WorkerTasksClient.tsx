@@ -152,7 +152,10 @@ export function WorkerTasksClient({
 
   const [tasks, setTasks] = useState<TaskState[]>([])
   const [checklists, setChecklists] = useState<ChecklistSummary[]>([])
-  const [deferredCount, setDeferredCount] = useState(0)
+  const [deferred, setDeferred] = useState<{ taskId: string; title: string; pushedTo: string }[]>([])
+  const [showDeferred, setShowDeferred] = useState(false)
+  const [undoingPushId, setUndoingPushId] = useState<string | null>(null)
+  const [pushError, setPushError] = useState('')
   const [firstName, setFirstName] = useState('')
   const [staffId, setStaffId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -311,7 +314,7 @@ export function WorkerTasksClient({
     const data = await r.json()
     setTasks(data.tasks)
     setChecklists(data.checklists ?? [])
-    setDeferredCount(data.deferredCount ?? 0)
+    setDeferred(Array.isArray(data.deferred) ? data.deferred : [])
     setFirstName(data.firstName)
     setStaffId(data.staffId ?? '')
     if (data.access) setAccess(data.access as WorkerTaskAccess)
@@ -405,6 +408,27 @@ export function WorkerTasksClient({
       setUndoError('COULD NOT CONNECT — TRY AGAIN')
     } finally {
       setUndoingId(null)
+    }
+  }
+
+  // Undo a FINISH TOMORROW push from the deferred strip: the task returns to
+  // today's list. A push that created the in-progress row leaves nothing behind.
+  async function undoPush(taskId: string) {
+    setUndoingPushId(taskId)
+    setPushError('')
+    try {
+      const r = await fetch(`/api/worker/tasks/${taskId}/push`, { method: 'DELETE' })
+      if (r.status === 401) { router.push('/w/login'); return }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setPushError(data.error ?? 'COULD NOT UNDO THIS PUSH')
+        return
+      }
+      await load()
+    } catch {
+      setPushError('COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      setUndoingPushId(null)
     }
   }
 
@@ -1216,8 +1240,17 @@ export function WorkerTasksClient({
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">
               {progress.done} OF {progress.total} TASKS DONE{handled.length > 0 ? ` · ${handled.length} HANDLED` : ''}
-              {deferredCount > 0 ? ` · ${deferredCount} DEFERRED` : ''}
             </p>
+            {deferred.length > 0 && (
+              <button
+                type="button"
+                aria-expanded={showDeferred}
+                onClick={() => setShowDeferred((v) => !v)}
+                className="mt-1 font-mono text-xs uppercase tracking-wider text-warning underline underline-offset-2"
+              >
+                {deferred.length} DEFERRED {showDeferred ? '▲' : '▼'}
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1340,6 +1373,34 @@ export function WorkerTasksClient({
               className="h-full bg-success transition-all duration-500"
               style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
             />
+          </div>
+        )}
+
+        {/* Deferred work (#143) — tappable count with UNDO, so a mis-tapped
+            FINISH TOMORROW can be brought back to today. */}
+        {deferred.length > 0 && showDeferred && (
+          <div className="mt-3 border border-warning/40 divide-y divide-grey-mid">
+            {deferred.map((d) => (
+              <div key={d.taskId} className="px-3 py-2 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-xs text-white truncate">{d.title}</div>
+                  <div className="font-mono text-xs uppercase text-grey-light">
+                    BACK {d.pushedTo ? formatDateDMY(d.pushedTo) : 'TOMORROW'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => undoPush(d.taskId)}
+                  disabled={undoingPushId === d.taskId}
+                  className="flex-shrink-0 font-mono text-xs uppercase border border-warning px-3 py-2 text-warning hover:bg-warning hover:text-black transition-colors disabled:opacity-40"
+                >
+                  {undoingPushId === d.taskId ? 'UNDOING...' : 'UNDO'}
+                </button>
+              </div>
+            ))}
+            {pushError && (
+              <p className="px-3 py-2 font-mono text-xs text-danger">{pushError}</p>
+            )}
           </div>
         )}
       </div>

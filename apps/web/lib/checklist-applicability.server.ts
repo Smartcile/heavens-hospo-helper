@@ -28,6 +28,8 @@ export interface ApplicableChecklist {
   requireOutcomeReason: boolean
   /** SIDE WORK / MULTI-DAY — partials stay live until a terminal outcome. */
   multiDay: boolean
+  /** List department — used as the push Notice department when the task has none. */
+  departmentId: string | null
   /** #143 — keep this list out of the day progress bar. */
   excludeFromProgress: boolean
   /** #143 — FINISH TOMORROW offered for tasks in this list. */
@@ -112,6 +114,7 @@ export async function applicableChecklistsForStaff(opts: {
       allowedOutcomes: true,
       requireOutcomeReason: true,
       multiDay: true,
+      departmentId: true,
       excludeFromProgress: true,
       allowPushToTomorrow: true,
       pushAlertAfter: true,

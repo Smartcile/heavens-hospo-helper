@@ -20,6 +20,16 @@ import { isPushedToFuture, progressDayKey } from '@/lib/task-progress'
 
 export const DEFAULT_PUSH_ALERT_AFTER = 3
 
+/** Longest push note kept (same cap as an availability comment). */
+export const MAX_PUSH_NOTE_LENGTH = 500
+
+/** Trim and cap a FINISH TOMORROW note. Blank becomes null. */
+export function normalisePushNote(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const note = raw.trim().slice(0, MAX_PUSH_NOTE_LENGTH)
+  return note ? note : null
+}
+
 export interface PushDayLike {
   fromDate: Date | string | null | undefined
   toDate: Date | string | null | undefined
@@ -34,6 +44,8 @@ export interface PushListLike {
   events?: readonly ChecklistEventWindow[] | null
   allowPushToTomorrow?: boolean | null
   pushAlertAfter?: number | null
+  /** Used as the Notice department when the task itself has none. */
+  departmentId?: string | null
 }
 
 /**

@@ -4,10 +4,16 @@ const { prisma, getWorkerSession, applicableChecklistsForStaff } = vi.hoisted(()
   prisma: {
     venue: { findUnique: vi.fn() },
     task: { findUnique: vi.fn() },
-    taskProgress: { upsert: vi.fn(), updateMany: vi.fn() },
+    taskProgress: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+      updateMany: vi.fn(),
+      deleteMany: vi.fn(),
+    },
     taskPush: { findFirst: vi.fn(), create: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     notice: { create: vi.fn() },
-    taskCompletion: { create: vi.fn() },
+    taskCompletion: { findFirst: vi.fn(), create: vi.fn() },
+    $transaction: vi.fn(),
   },
   getWorkerSession: vi.fn(),
   applicableChecklistsForStaff: vi.fn(),
@@ -41,6 +47,7 @@ function list(overrides: Record<string, unknown> = {}) {
     allowedOutcomes: [],
     requireOutcomeReason: false,
     multiDay: false,
+    departmentId: 'd1',
     excludeFromProgress: false,
     allowPushToTomorrow: true,
     pushAlertAfter: 3,
@@ -60,12 +67,23 @@ beforeEach(() => {
   prisma.task.findUnique.mockResolvedValue({ id: 't1', title: 'DEEP CLEAN', venueId: 'v1', departmentId: 'd1' })
   applicableChecklistsForStaff.mockResolvedValue({ checklists: [list()], departmentIds: null })
   prisma.taskPush.findFirst.mockResolvedValue(null)
+  prisma.taskProgress.findUnique.mockResolvedValue(null)
   prisma.taskProgress.upsert.mockResolvedValue({ id: 'p1' })
-  prisma.taskPush.create.mockResolvedValue({ id: 'push1' })
+  prisma.taskPush.create.mockResolvedValue({ id: 'push1', createdProgress: true })
   prisma.taskPush.findMany.mockResolvedValue([])
   prisma.notice.create.mockResolvedValue({ id: 'n1' })
   prisma.taskPush.update.mockResolvedValue({ id: 'push1' })
   prisma.taskProgress.updateMany.mockResolvedValue({ count: 1 })
+  prisma.taskProgress.deleteMany.mockResolvedValue({ count: 1 })
+  prisma.taskCompletion.findFirst.mockResolvedValue(null)
+  prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+    fn({
+      taskPush: {
+        findFirst: prisma.taskPush.findFirst,
+        create: prisma.taskPush.create,
+      },
+    }),
+  )
 })
 
 describe('POST /api/worker/tasks/[id]/push', () => {
@@ -103,6 +121,18 @@ describe('POST /api/worker/tasks/[id]/push', () => {
     expect(prisma.taskProgress.upsert).not.toHaveBeenCalled()
   })
 
+  it('409 when the task is already completed today', async () => {
+    prisma.taskCompletion.findFirst.mockResolvedValue({ id: 'tc1' })
+
+    const res = await POST(req({}), params)
+    const body = await res.json()
+
+    expect(res.status).toBe(409)
+    expect(body.error).toBe('TASK ALREADY COMPLETED TODAY')
+    expect(prisma.taskProgress.upsert).not.toHaveBeenCalled()
+    expect(prisma.taskPush.create).not.toHaveBeenCalled()
+  })
+
   it('hides the task until tomorrow and writes no completion', async () => {
     // The push row is in the table when the streak is read back.
     prisma.taskPush.findMany.mockResolvedValue([
@@ -131,12 +161,41 @@ describe('POST /api/worker/tasks/[id]/push', () => {
           fromDate: TODAY,
           toDate: TOMORROW,
           note: 'second coat needed',
+          // No progress row existed, so undo may remove the one this push creates.
+          createdProgress: true,
         }),
       }),
     )
     // A push is a deferral, never a completion.
     expect(prisma.taskCompletion.create).not.toHaveBeenCalled()
     expect(prisma.notice.create).not.toHaveBeenCalled()
+  })
+
+  it('records that an earlier PARTIAL already existed', async () => {
+    prisma.taskProgress.findUnique.mockResolvedValue({ id: 'existing-progress' })
+    prisma.taskPush.findMany.mockResolvedValue([
+      { fromDate: TODAY, toDate: TOMORROW, alertedAt: null },
+    ])
+
+    await POST(req({}), params)
+
+    expect(prisma.taskPush.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ createdProgress: false }),
+      }),
+    )
+  })
+
+  it('trims and caps the push note at 500 characters', async () => {
+    prisma.taskPush.findMany.mockResolvedValue([
+      { fromDate: TODAY, toDate: TOMORROW, alertedAt: null },
+    ])
+
+    await POST(req({ note: `   ${'x'.repeat(600)}   ` }), params)
+
+    const data = prisma.taskPush.create.mock.calls[0][0].data
+    expect(data.note).toHaveLength(500)
+    expect(data.note).toBe('x'.repeat(500))
   })
 
   it('raises one pinned manager Notice when the streak hits the threshold', async () => {
@@ -167,6 +226,28 @@ describe('POST /api/worker/tasks/[id]/push', () => {
     )
     // Still no completion for a deferral.
     expect(prisma.taskCompletion.create).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the open list department for the alert when the task has none', async () => {
+    prisma.task.findUnique.mockResolvedValue({ id: 't1', title: 'DEEP CLEAN', venueId: 'v1', departmentId: null })
+    applicableChecklistsForStaff.mockResolvedValue({
+      checklists: [list({ departmentId: 'd-list' })],
+      departmentIds: null,
+    })
+    prisma.taskPush.findMany.mockResolvedValue([
+      { fromDate: TODAY, toDate: TOMORROW, alertedAt: null },
+      { fromDate: YESTERDAY, toDate: TODAY, alertedAt: null },
+      { fromDate: DAY_BEFORE, toDate: YESTERDAY, alertedAt: null },
+    ])
+
+    const res = await POST(req({}), params)
+
+    expect(res.status).toBe(201)
+    expect(prisma.notice.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ departmentId: 'd-list' }),
+      }),
+    )
   })
 
   it('does not alert below the threshold', async () => {
@@ -225,8 +306,8 @@ describe('DELETE /api/worker/tasks/[id]/push', () => {
     expect(prisma.taskPush.update).not.toHaveBeenCalled()
   })
 
-  it('soft-deletes today\'s push and un-hides the task', async () => {
-    prisma.taskPush.findFirst.mockResolvedValue({ id: 'push1' })
+  it('soft-deletes today\'s push and keeps an earlier PARTIAL', async () => {
+    prisma.taskPush.findFirst.mockResolvedValue({ id: 'push1', createdProgress: false })
 
     const res = await DELETE(req(), params)
 
@@ -239,5 +320,18 @@ describe('DELETE /api/worker/tasks/[id]/push', () => {
       where: { taskId: 't1', pushedToDate: { not: null } },
       data: { pushedToDate: null },
     })
+    // The progress row pre-existed, so it must not be removed.
+    expect(prisma.taskProgress.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('removes the progress row when the push created it', async () => {
+    prisma.taskPush.findFirst.mockResolvedValue({ id: 'push1', createdProgress: true })
+
+    const res = await DELETE(req(), params)
+
+    expect(res.status).toBe(200)
+    expect(prisma.taskProgress.deleteMany).toHaveBeenCalledWith({ where: { taskId: 't1' } })
+    // No synthetic PARTIAL: nothing is left behind to un-hide.
+    expect(prisma.taskProgress.updateMany).not.toHaveBeenCalled()
   })
 })
