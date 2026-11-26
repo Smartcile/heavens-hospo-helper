@@ -28,7 +28,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   })
   if (!event) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const body = (await req.json().catch(() => ({}))) as { blocks?: EventBlockInput[] }
+  const body = (await req.json().catch(() => ({}))) as { blocks?: EventBlockInput[]; historyNote?: string }
   const blocks = Array.isArray(body.blocks) ? body.blocks : []
 
   const library = await loadBlockLibrary(event.venueId)
@@ -43,6 +43,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
     'BLOCKS',
     `BLOCKS SAVED — ${result.saved.length} BLOCK(S)`,
   )
+  // An LLM prompt apply sends a summary of WHAT CHANGED — never the pasted
+  // customer message (privacy contract: history is rendered by the viewer).
+  if (typeof body.historyNote === 'string' && body.historyNote.trim()) {
+    await logEventEvent(params.id, 'LLM_PASTE', body.historyNote.trim())
+  }
 
   return NextResponse.json(result)
 }

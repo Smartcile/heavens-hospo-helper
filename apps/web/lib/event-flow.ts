@@ -76,7 +76,8 @@ export function buildEventFlow(input: EventFlowInput): EventFlow {
     const def = blockDef(block.type, input.library)
     const label = block.title?.trim() || def?.label || block.type
 
-    if (!def?.readOnly && block.type !== 'HISTORY') {
+    // AWAITING is a customer to-do list, not a planning area.
+    if (!def?.readOnly && block.type !== 'HISTORY' && block.type !== 'AWAITING') {
       planning.push({
         id: block.id,
         stage: 'PLANNING',

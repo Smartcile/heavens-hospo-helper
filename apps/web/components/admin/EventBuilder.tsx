@@ -13,7 +13,20 @@ import { RoomSetupCard } from '@/components/RoomSetupCard'
 import { roomSetupLabel } from '@/lib/room-setup'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
-import { BEO_BLOCKS, blockLabel, defaultConfigFor, moveBlock, summariseBlock, type BlockLibrary } from '@/lib/beo-blocks'
+import { EventPromptModal, type EventPromptApply } from '@/components/admin/EventPromptModal'
+import type { EventPromptEvent } from '@/lib/event-prompt'
+import {
+  BEO_BLOCKS,
+  BLOCK_STATES,
+  blockLabel,
+  blockState,
+  defaultConfigFor,
+  moveBlock,
+  setBlockState,
+  summariseBlock,
+  type BlockLibrary,
+  type BlockState,
+} from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
 import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
 import { inlinePdfUrl } from '@/lib/pdf-actions'
@@ -24,6 +37,12 @@ export interface BeoBlockRow {
   title: string | null
   config: Record<string, unknown>
   sortOrder: number
+}
+
+export interface EventHistoryEntry {
+  at: string
+  type: string
+  note: string
 }
 
 export interface EventDetail {
@@ -51,6 +70,8 @@ export interface EventDetail {
   shareExpiresAt?: string | null
   blocks: BeoBlockRow[]
   changeRequests?: { id: string; kind: string; status: string; message: string }[]
+  /** Append-only activity log (CREATED / STATUS / BLOCKS / LLM_PASTE …). */
+  history?: EventHistoryEntry[]
 }
 
 interface Option { id: string; name: string }
@@ -131,6 +152,7 @@ export function EventBuilder({
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState('')
   const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
+  const [promptOpen, setPromptOpen] = useState(false)
 
   function patch(p: Partial<Draft>) {
     setDraft((d) => ({ ...d, ...p }))
@@ -191,7 +213,8 @@ export function EventBuilder({
     })
   }
 
-  async function save(): Promise<boolean> {
+  async function save(opts?: { historyNote?: string; draftOverride?: Draft }): Promise<boolean> {
+    const d = opts?.draftOverride ?? draft
     setSaving(true)
     setError('')
 
@@ -199,31 +222,31 @@ export function EventBuilder({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: draft.name,
-        eventType: draft.eventType,
-        status: draft.status,
-        eventDate: draft.eventDate,
-        startTime: draft.startTime,
-        endTime: draft.endTime,
-        guestCount: draft.guestCount,
-        diningStyle: draft.diningStyle,
-        contactName: draft.contactName,
-        contactEmail: draft.contactEmail,
-        contactPhone: draft.contactPhone,
-        menuId: draft.menuId,
-        serviceId: draft.serviceId,
-        setupId: draft.setupId,
-        pushToBookings: draft.pushToBookings,
-        depositAmount: draft.depositAmount === '' ? null : Number(draft.depositAmount),
-        paymentStatus: draft.paymentStatus,
-        notes: draft.notes,
-        internalNotes: draft.internalNotes,
+        name: d.name,
+        eventType: d.eventType,
+        status: d.status,
+        eventDate: d.eventDate,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        guestCount: d.guestCount,
+        diningStyle: d.diningStyle,
+        contactName: d.contactName,
+        contactEmail: d.contactEmail,
+        contactPhone: d.contactPhone,
+        menuId: d.menuId,
+        serviceId: d.serviceId,
+        setupId: d.setupId,
+        pushToBookings: d.pushToBookings,
+        depositAmount: d.depositAmount === '' ? null : Number(d.depositAmount),
+        paymentStatus: d.paymentStatus,
+        notes: d.notes,
+        internalNotes: d.internalNotes,
       }),
     })
     if (!eventRes.ok) {
-      const d = await eventRes.json().catch(() => ({}))
+      const body = await eventRes.json().catch(() => ({}))
       setSaving(false)
-      setError(d.error ?? 'COULD NOT SAVE EVENT')
+      setError(body.error ?? 'COULD NOT SAVE EVENT')
       return false
     }
 
@@ -231,18 +254,19 @@ export function EventBuilder({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        blocks: draft.blocks.map((b) => ({
+        blocks: d.blocks.map((b) => ({
           id: b.id.startsWith('new_') ? null : b.id,
           type: b.type,
           title: b.title,
           config: b.config,
         })),
+        historyNote: opts?.historyNote,
       }),
     })
     if (!blocksRes.ok) {
-      const d = await blocksRes.json().catch(() => ({}))
+      const body = await blocksRes.json().catch(() => ({}))
       setSaving(false)
-      setError(d.error ?? 'EVENT SAVED, BUT BLOCKS FAILED')
+      setError(body.error ?? 'EVENT SAVED, BUT BLOCKS FAILED')
       return false
     }
 
@@ -344,6 +368,20 @@ export function EventBuilder({
     onSaved()
   }
 
+  async function applyPrompt(result: EventPromptApply): Promise<boolean> {
+    const fields = { ...result.patch } as Record<string, unknown>
+    if ('depositAmount' in fields) {
+      fields.depositAmount = fields.depositAmount == null ? '' : String(fields.depositAmount)
+    }
+    const next: Draft = {
+      ...draft,
+      ...(fields as Partial<Draft>),
+      blocks: result.blocks ?? draft.blocks,
+    }
+    setDraft(next)
+    return save({ historyNote: result.summary, draftOverride: next })
+  }
+
   const totals = computeEventTotals(
     draft.blocks as unknown as EventBlockLike[],
     refs.menuItems.map((m) => ({ id: m.id, name: m.name, price: m.price ?? 0 })),
@@ -361,8 +399,9 @@ export function EventBuilder({
         <div className="flex-1" />
         {error && <span className="font-mono text-xs text-danger uppercase">{error}</span>}
         <Button size="sm" variant="ghost" onClick={() => setShareOpen(true)}>SHARE</Button>
+        <Button size="sm" variant="ghost" onClick={() => setPromptOpen(true)}>PROMPT</Button>
         <Button size="sm" variant="ghost" onClick={() => setTplOpen(true)}>SAVE AS TEMPLATE</Button>
-        <Button size="sm" onClick={save} loading={saving}>SAVE</Button>
+        <Button size="sm" onClick={() => save()} loading={saving}>SAVE</Button>
       </div>
 
       {/* Event header */}
@@ -525,7 +564,21 @@ export function EventBuilder({
                     >
                       {open ? '▾' : '▸'} {b.title?.trim() || blockLabel(b.type, library)}
                     </button>
-                    <div className="flex items-center shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
+                      <select
+                        aria-label="Block state"
+                        value={blockState(b)}
+                        onChange={(e) =>
+                          updateBlock(b.id, {
+                            config: setBlockState(b.config, e.target.value as BlockState),
+                          })
+                        }
+                        className="bg-black border border-grey-mid text-white font-mono text-2xs uppercase px-1 py-1 outline-none focus:border-white"
+                      >
+                        {BLOCK_STATES.map((state) => (
+                          <option key={state} value={state}>{state}</option>
+                        ))}
+                      </select>
                       <button type="button" onClick={() => move(b.id, -1)} disabled={i === 0} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30" aria-label="Move up">↑</button>
                       <button type="button" onClick={() => move(b.id, 1)} disabled={i === draft.blocks.length - 1} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30" aria-label="Move down">↓</button>
                       <button type="button" onClick={() => duplicateBlock(b.id)} className="h-9 px-2 flex items-center justify-center font-mono text-xs text-grey-light hover:text-white" aria-label="Duplicate">DUP</button>
@@ -534,6 +587,9 @@ export function EventBuilder({
                   </div>
                   {!open && (
                     <p className="px-2.5 pb-2 -mt-1 font-mono text-xs uppercase text-grey-light truncate">
+                      <span className={`border px-1 mr-1 ${blockState(b) === 'CONFIRMED' ? 'border-success text-success' : blockState(b) === 'SENT' ? 'border-warning text-warning' : 'border-grey-mid text-grey-light'}`}>
+                        {blockState(b)}
+                      </span>
                       {summariseBlock(b, library)}
                     </p>
                   )}
@@ -565,6 +621,42 @@ export function EventBuilder({
       <p className="font-mono text-xs uppercase text-grey-light">
         VENUE {venueId.slice(0, 8)} · BLOCKS SAVE WITH THE EVENT
       </p>
+
+      {/* Read-only activity log — where an LLM_PASTE apply is recorded. */}
+      <div className="border border-grey-mid p-3 space-y-2" data-testid="event-history">
+        <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">HISTORY</h3>
+        {(draft.history ?? []).length === 0 ? (
+          <p className="font-mono text-xs uppercase text-grey-light">NO ACTIVITY YET.</p>
+        ) : (
+          <ul className="divide-y divide-grey-mid">
+            {(draft.history ?? []).map((entry, i) => (
+              <li key={`${entry.at}-${i}`} className="py-1.5 font-mono text-xs text-white">
+                <span className="text-grey-light uppercase">{entry.at.slice(0, 16).replace('T', ' ')}</span>{' '}
+                <span className="border border-grey-mid px-1 uppercase text-grey-light">{entry.type}</span>{' '}
+                <span className="uppercase">{entry.note}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {promptOpen && (
+        <EventPromptModal
+          isOpen={promptOpen}
+          onClose={() => setPromptOpen(false)}
+          event={draft as unknown as EventPromptEvent}
+          blocks={draft.blocks}
+          refs={{
+            venueName: undefined,
+            menus: refs.menus,
+            menuItems: refs.menuItems,
+            services: refs.services,
+            setups: refs.setups,
+          }}
+          library={library}
+          onApply={applyPrompt}
+        />
+      )}
 
       <Modal isOpen={tplOpen} onClose={() => setTplOpen(false)} title="SAVE AS TEMPLATE">
         <div className="space-y-3">

@@ -290,6 +290,24 @@ export const BEO_BLOCKS: BeoBlockDef[] = [
     fields: [],
   },
   {
+    type: 'AWAITING',
+    label: 'AWAITING FROM CUSTOMER',
+    group: 'ADMIN',
+    description: 'WHAT THE CUSTOMER STILL OWES — MENU CHOICE, FINAL NUMBERS, DEPOSIT.',
+    defaultConfig: { rows: [] },
+    fields: [
+      {
+        key: 'rows',
+        label: 'AWAITING',
+        kind: 'rows',
+        columns: [
+          { key: 'label', label: 'WHAT' },
+          { key: 'since', label: 'SINCE' },
+        ],
+      },
+    ],
+  },
+  {
     type: 'CUSTOM_TEXT',
     label: 'CUSTOM TEXT',
     group: 'ADMIN',
@@ -301,6 +319,37 @@ export const BEO_BLOCKS: BeoBlockDef[] = [
     ],
   },
 ]
+
+/** Per-block working state, stored under the reserved `config.__state` key. */
+export const BLOCK_STATES = ['TODO', 'SENT', 'CONFIRMED'] as const
+
+export type BlockState = (typeof BLOCK_STATES)[number]
+
+/** Reserved config key — never rendered, printed or shared with the customer. */
+export const BLOCK_STATE_KEY = '__state'
+
+/** The state a block is in. Missing/garbage values read as TODO. */
+export function blockState(block: { config?: Record<string, unknown> | null }): BlockState {
+  const raw = block?.config?.[BLOCK_STATE_KEY]
+  return (BLOCK_STATES as readonly unknown[]).includes(raw) ? (raw as BlockState) : 'TODO'
+}
+
+/** Return a copy of a config with the state set. */
+export function setBlockState(
+  config: Record<string, unknown> | null | undefined,
+  state: BlockState,
+): Record<string, unknown> {
+  const base = config && typeof config === 'object' ? { ...config } : {}
+  base[BLOCK_STATE_KEY] = state
+  return base
+}
+
+/** Count the non-TODO states, for a compact pipeline/BEO readout. */
+export function blockStateSummary(blocks: { config?: Record<string, unknown> | null }[]): Record<BlockState, number> {
+  const counts: Record<BlockState, number> = { TODO: 0, SENT: 0, CONFIRMED: 0 }
+  for (const block of blocks ?? []) counts[blockState(block)] += 1
+  return counts
+}
 
 /** Every built-in type key — used to stop a custom def shadowing a built-in. */
 export const BUILT_IN_BLOCK_TYPES: string[] = BEO_BLOCKS.map((b) => b.type)

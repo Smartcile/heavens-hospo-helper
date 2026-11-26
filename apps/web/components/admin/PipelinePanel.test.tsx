@@ -10,7 +10,16 @@ const EVENTS = [
     status: 'ENQUIRY',
     eventDate: '2026-11-14',
     guestCount: 96,
-    blocks: [{ id: 'b1', type: 'NOTES', title: null, config: { text: 'ALLERGY NOTE' }, sortOrder: 0 }],
+    blocks: [
+      { id: 'b1', type: 'NOTES', title: null, config: { text: 'ALLERGY NOTE' }, sortOrder: 0 },
+      {
+        id: 'b2',
+        type: 'AWAITING',
+        title: null,
+        config: { rows: [{ label: 'DEPOSIT', since: '2026-11-01' }, { label: 'FINAL NUMBERS', since: '' }] },
+        sortOrder: 1,
+      },
+    ],
   },
 ]
 
@@ -47,5 +56,12 @@ describe('PipelinePanel', () => {
     expect(screen.getByText(/EVENT DAY/)).toBeTruthy()
     expect(screen.getByText('NOTES')).toBeTruthy()
     expect(screen.getByText('OPEN BEO')).toBeTruthy()
+  })
+
+  it('renders awaiting chips from the AWAITING block', async () => {
+    render(<PipelinePanel sessionVenueId="v1" onOpenEvent={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+    const chips = screen.getAllByTestId('awaiting-chip').map((c) => c.textContent)
+    expect(chips).toEqual(['AWAITING: DEPOSIT', 'AWAITING: FINAL NUMBERS'])
   })
 })
