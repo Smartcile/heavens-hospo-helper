@@ -155,6 +155,21 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [createEventOpen, setCreateEventOpen] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
   const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
+  const pdfObjectUrlRef = useRef<string | null>(null)
+
+  // The roster PDF is a client-generated blob, so revoke it when the page
+  // unmounts as well as when the viewer closes (never while it is open).
+  useEffect(() => () => {
+    if (pdfObjectUrlRef.current) URL.revokeObjectURL(pdfObjectUrlRef.current)
+    pdfObjectUrlRef.current = null
+  }, [])
+
+  function closePdf() {
+    const url = pdfObjectUrlRef.current
+    pdfObjectUrlRef.current = null
+    setPdfTarget(null)
+    if (url) URL.revokeObjectURL(url)
+  }
 
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -647,7 +662,9 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     })
     // A blob URL keeps the roster in the in-app viewer; there is no route to
     // hit, so this is the one PDF that does not need ?inline=1.
-    const url = doc.output('bloburl') as unknown as string
+    if (pdfObjectUrlRef.current) URL.revokeObjectURL(pdfObjectUrlRef.current)
+    const url = URL.createObjectURL(doc.output('blob'))
+    pdfObjectUrlRef.current = url
     setPdfTarget({
       url,
       downloadUrl: url,
@@ -1238,10 +1255,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       {pdfTarget && (
         <PdfViewerModal
           target={pdfTarget}
-          onClose={() => {
-            if (pdfTarget.url.startsWith('blob:')) URL.revokeObjectURL(pdfTarget.url)
-            setPdfTarget(null)
-          }}
+          onClose={closePdf}
         />
       )}
     </div>

@@ -42,6 +42,39 @@ describe('PdfViewerModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('does not close a click-closing parent when interacting with the viewer', () => {
+    const parentClose = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <div data-testid="parent" onClick={parentClose}>
+        <PdfViewerModal target={TARGET} onClose={onClose} />
+      </div>,
+    )
+
+    fireEvent.pointerDown(screen.getByTestId('pdf-viewer-modal'))
+    fireEvent.click(screen.getByTestId('pdf-viewer-modal'))
+    expect(parentClose).not.toHaveBeenCalled()
+
+    // BACK must still close the viewer, but never the parent screen.
+    fireEvent.click(screen.getByTestId('pdf-back'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(parentClose).not.toHaveBeenCalled()
+  })
+
+  it('stops Escape before an underlying Modal/document handler', () => {
+    const underlying = vi.fn()
+    const onClose = vi.fn()
+    document.addEventListener('keydown', underlying)
+    try {
+      render(<PdfViewerModal target={TARGET} onClose={onClose} />)
+      fireEvent.keyDown(screen.getByTestId('pdf-viewer-modal'), { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(underlying).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', underlying)
+    }
+  })
+
   it('Escape calls onClose', () => {
     const onClose = vi.fn()
     render(<PdfViewerModal target={TARGET} onClose={onClose} />)

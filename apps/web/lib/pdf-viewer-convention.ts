@@ -133,15 +133,106 @@ function anchorTagAt(lines: string[], index: number): string | null {
 }
 
 /**
+ * Replace `//` and block comments with spaces, preserving newlines and quoted
+ * strings. This keeps line numbers stable while ensuring a commented-out
+ * bypass is never flagged. `https://` is intentionally left intact.
+ */
+export function stripComments(source: string): string {
+  let out = ''
+  let i = 0
+  let state: 'code' | 'line' | 'block' | 'single' | 'double' | 'template' = 'code'
+  while (i < source.length) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (state === 'line') {
+      if (ch === '\n') {
+        state = 'code'
+        out += '\n'
+      } else {
+        out += ' '
+      }
+      i++
+      continue
+    }
+    if (state === 'block') {
+      if (ch === '*' && next === '/') {
+        out += '  '
+        i += 2
+        state = 'code'
+        continue
+      }
+      out += ch === '\n' ? '\n' : ' '
+      i++
+      continue
+    }
+    if (state === 'single' || state === 'double' || state === 'template') {
+      out += ch
+      if (ch === '\\') {
+        if (next !== undefined) {
+          out += next
+          i += 2
+          continue
+        }
+      } else if (
+        (state === 'single' && ch === "'") ||
+        (state === 'double' && ch === '"') ||
+        (state === 'template' && ch === '`')
+      ) {
+        state = 'code'
+      }
+      i++
+      continue
+    }
+
+    const prev = source[i - 1]
+    if (ch === '/' && next === '/' && prev !== ':') {
+      state = 'line'
+      out += '  '
+      i += 2
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      state = 'block'
+      out += '  '
+      i += 2
+      continue
+    }
+    if (ch === "'") {
+      state = 'single'
+      out += ch
+      i++
+      continue
+    }
+    if (ch === '"') {
+      state = 'double'
+      out += ch
+      i++
+      continue
+    }
+    if (ch === '`') {
+      state = 'template'
+      out += ch
+      i++
+      continue
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
+/**
  * Detect PDF bypasses in one source file. Lines with a `pdf-download-ok`
  * marker (same line or one above) are allowed and left out.
  */
 export function scanPdfSource(file: string, source: string): PdfViolation[] {
-  const lines = source.split(/\r?\n/)
+  const rawLines = source.split(/\r?\n/)
+  // Comments are blanked for detection but markers still read the raw source.
+  const lines = stripComments(source).split(/\r?\n/)
   const violations: PdfViolation[] = []
 
   for (let i = 0; i < lines.length; i++) {
-    if (hasMarker(lines, i)) continue
+    if (hasMarker(rawLines, i)) continue
     const line = lines[i] ?? ''
 
     // 1) window.open(...) with a PDF URL, up to three lines.

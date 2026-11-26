@@ -35,14 +35,19 @@ export function PdfViewerModal({ target, onClose }: Props) {
 
   useEffect(() => {
     if (!target) return
+    // Capture phase: the underlying Modal also listens for Escape on document,
+    // so stop the event before it reaches that bubble-phase handler.
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCloseRef.current()
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      e.preventDefault()
+      onCloseRef.current()
     }
-    document.addEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
       document.body.style.overflow = previousOverflow
     }
   }, [target])
@@ -55,6 +60,11 @@ export function PdfViewerModal({ target, onClose }: Props) {
       aria-modal="true"
       data-testid="pdf-viewer-modal"
       className="fixed inset-0 z-[60] flex flex-col bg-black"
+      // The viewer is a sibling of the protected inner dialog in several
+      // parents whose backdrop closes on click. Never let a click/pointer
+      // inside the PDF reach that backdrop.
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <PdfDocumentView
         url={target.url}

@@ -11,6 +11,7 @@ import {
   formatViolation,
   markerReason,
   scanPdfSource,
+  stripComments,
   type PdfMarker,
 } from './pdf-viewer-convention'
 
@@ -121,6 +122,36 @@ describe('pdf-viewer-convention scanner', () => {
     ].join('\n')
     expect(scanPdfSource('x.tsx', sameLine)).toHaveLength(0)
     expect(scanPdfSource('x.tsx', above)).toHaveLength(0)
+  })
+
+  it('ignores PDF bypasses inside line and block comments', () => {
+    const source = [
+      "// window.open('/api/admin/things/1/pdf', '_blank')",
+      '/*',
+      "window.open('/api/admin/things/1/pdf', '_blank')",
+      '*/',
+    ].join('\n')
+    expect(scanPdfSource('x.tsx', source)).toHaveLength(0)
+  })
+
+  it('still flags a real bypass next to a comment', () => {
+    const source = [
+      "// window.open('/api/admin/things/1/pdf')",
+      "window.open('/api/admin/things/2/pdf', '_blank')",
+    ].join('\n')
+    const violations = scanPdfSource('x.tsx', source)
+    expect(violations).toHaveLength(1)
+    expect(violations[0].line).toBe(2)
+  })
+
+  it('strips comments without touching strings or URLs', () => {
+    const stripped = stripComments(
+      ["const url = 'https://example.com/a.pdf' // tail", '/* block */ code()'].join('\n'),
+    )
+    expect(stripped).toContain("'https://example.com/a.pdf'")
+    expect(stripped).not.toContain('tail')
+    expect(stripped).not.toContain('block')
+    expect(stripped).toContain('code()')
   })
 
   it('only accepts a marker with a reason', () => {

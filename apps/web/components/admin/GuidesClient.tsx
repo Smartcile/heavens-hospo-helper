@@ -957,8 +957,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
               />
               {pdfUrl && (
+                // pdf-download-ok: external PDF URL
                 <a
-                  // pdf-download-ok: external PDF URL
                   href={pdfUrl}
                   target="_blank"
                   rel="noopener noreferrer"

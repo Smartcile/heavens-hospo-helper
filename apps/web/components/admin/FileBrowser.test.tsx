@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { FileBrowser } from '@/components/admin/FileBrowser'
 
-const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+const pdfCanvas = vi.hoisted(() => ({ PdfCanvasViewer: vi.fn() }))
 
-vi.mock('@/components/ui/PdfViewerModal', () => ({
-  PdfViewerModal: (props: Record<string, unknown>) => {
-    pdfMocks.PdfViewerModal(props)
+vi.mock('@/components/ui/PdfCanvasViewer', () => ({
+  PdfCanvasViewer: (props: Record<string, unknown>) => {
+    pdfCanvas.PdfCanvasViewer(props)
     return null
   },
 }))
@@ -28,7 +28,7 @@ describe('FileBrowser', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    pdfMocks.PdfViewerModal.mockReset()
+    pdfCanvas.PdfCanvasViewer.mockReset()
   })
 
   afterEach(() => { vi.restoreAllMocks() })
@@ -134,10 +134,28 @@ describe('FileBrowser', () => {
     fireEvent.click(await screen.findByText('Gift Card - 20260001.pdf'))
     fireEvent.click(await screen.findByText('OPEN'))
 
-    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
-    expect(target).toMatchObject({
-      url: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf&inline=1',
-      downloadUrl: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf',
-    })
+    expect(screen.getByTestId('pdf-viewer-modal')).toBeTruthy()
+    expect(pdfCanvas.PdfCanvasViewer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf&inline=1',
+      }),
+    )
+  })
+
+  it('does not close the preview when clicking inside the PDF viewer', async () => {
+    mockFetch({ 'root=media&path=': { entries: [pdf] } })
+
+    render(<FileBrowser />)
+    fireEvent.click(await screen.findByText('Gift Card - 20260001.pdf'))
+    await screen.findByText("WHERE IT'S USED")
+
+    fireEvent.click(await screen.findByText('OPEN'))
+    // The preview's backdrop closes on click; the viewer must stop that event.
+    fireEvent.click(screen.getByTestId('pdf-viewer-modal'))
+    expect(screen.getByText("WHERE IT'S USED")).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('pdf-back'))
+    await waitFor(() => expect(screen.queryByTestId('pdf-viewer-modal')).toBeNull())
+    expect(screen.getByText("WHERE IT'S USED")).toBeTruthy()
   })
 })

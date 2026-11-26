@@ -115,19 +115,38 @@ describe('RosterClient', () => {
     expect(screen.queryByText('Venue')).toBeNull()
   })
 
-  it('opens the generated roster PDF in the in-app viewer', async () => {
+  it('opens the generated roster PDF in the in-app viewer and revokes the blob URL', async () => {
     mockFetch([[], [], data])
-    pdfMocks.generateRosterPdf.mockReturnValue({ output: () => 'blob:roster' })
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+    const createObjectURL = vi.fn(() => 'blob:roster')
+    const revokeObjectURL = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+    pdfMocks.generateRosterPdf.mockReturnValue({ output: () => new Blob(['%PDF-1.4']) })
 
-    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
-    fireEvent.click(await screen.findByText('PRINT'))
+    try {
+      const { unmount } = render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+      fireEvent.click(await screen.findByText('PRINT'))
 
-    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string; filename: string } }).target
-    expect(target).toMatchObject({
-      url: 'blob:roster',
-      downloadUrl: 'blob:roster',
-      filename: `ROSTER-${monday}.pdf`,
-    })
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string; filename: string } }).target
+      expect(target).toMatchObject({
+        url: 'blob:roster',
+        downloadUrl: 'blob:roster',
+        filename: `ROSTER-${monday}.pdf`,
+      })
+      // Never revoked while the viewer is open.
+      expect(revokeObjectURL).not.toHaveBeenCalled()
+
+      unmount()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:roster')
+    } finally {
+      if (originalCreate) Object.defineProperty(URL, 'createObjectURL', originalCreate)
+      else delete (URL as unknown as Record<string, unknown>).createObjectURL
+      if (originalRevoke) Object.defineProperty(URL, 'revokeObjectURL', originalRevoke)
+      else delete (URL as unknown as Record<string, unknown>).revokeObjectURL
+    }
   })
 
   it('uses the shared date nav and toggles compact density', async () => {
