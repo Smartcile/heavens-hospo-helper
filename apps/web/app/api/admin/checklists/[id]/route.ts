@@ -6,6 +6,7 @@ import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parseTaskGroups } from '@/lib/task-groups'
+import { normalisePushAlertAfter } from '@/lib/task-push'
 import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -77,6 +78,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     multiDay: c.multiDay,
+    excludeFromProgress: c.excludeFromProgress,
+    allowPushToTomorrow: c.allowPushToTomorrow,
+    pushAlertAfter: c.pushAlertAfter,
     tasks: c.tasks
       .filter((ct) => ct.task && !ct.task.deletedAt)
       .map((ct) => ({ ...ct.task, groupLabel: ct.groupLabel })),
@@ -113,6 +117,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
   if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
   if (body.multiDay !== undefined) updates.multiDay = !!body.multiDay
+  if (body.excludeFromProgress !== undefined) updates.excludeFromProgress = !!body.excludeFromProgress
+  if (body.allowPushToTomorrow !== undefined) updates.allowPushToTomorrow = !!body.allowPushToTomorrow
+  if (body.pushAlertAfter !== undefined) updates.pushAlertAfter = normalisePushAlertAfter(body.pushAlertAfter)
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
   if (body.schedules !== undefined) {
     const scheduleCheck = validateSchedules(body.schedules)

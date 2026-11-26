@@ -81,6 +81,29 @@ describe('POST /api/worker/checklists multi-day', () => {
   })
 })
 
+describe('POST /api/worker/checklists progress + push flags', () => {
+  it('persists the flags for the worker venue', async () => {
+    const res = await POST(req({
+      name: 'SIDE WORK',
+      taskIds: ['t1'],
+      excludeFromProgress: true,
+      allowPushToTomorrow: true,
+      pushAlertAfter: 4,
+    }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.checklist.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          excludeFromProgress: true,
+          allowPushToTomorrow: true,
+          pushAlertAfter: 4,
+        }),
+      }),
+    )
+  })
+})
+
 describe('POST /api/worker/checklists events', () => {
   it('links the selected events for the worker venue', async () => {
     prisma.calendarEvent.count.mockResolvedValue(1)

@@ -119,7 +119,7 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
   if (tasks.length === 0) return 0
 
   const taskIds = tasks.map((t) => t.id)
-  const [completions, inProgress, multiDayLinks] = await Promise.all([
+  const [completions, inProgress, multiDayLinks, pushes] = await Promise.all([
     prisma.taskCompletion.findMany({
       where: {
         taskId: { in: taskIds },
@@ -142,8 +142,14 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       },
       select: { taskId: true },
     }),
+    // #143 — a FINISH TOMORROW push defers the day; it is not a miss.
+    prisma.taskPush.findMany({
+      where: { taskId: { in: taskIds }, fromDate: { in: dates }, deletedAt: null },
+      select: { taskId: true, fromDate: true },
+    }),
   ])
   const done = new Set(completions.map((c) => `${c.taskId}|${c.staffId}|${formatDateKey(c.scheduledDate)}`))
+  const pushed = new Set(pushes.map((p) => `${p.taskId}|${formatDateKey(p.fromDate)}`))
   // A partial that is still live on a given day means the floor is still working
   // on it, so that day is not missed. Multi-day (side work) partials never go
   // stale; a today-only partial only covers the day it was reported.
@@ -160,6 +166,8 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       if (key < createdDay) continue // don't flag dates before the task existed
       if (!isTaskDueOnDate(task, date)) continue
       if (done.has(`${task.id}|${staffId}|${key}`)) continue
+      // Deliberately pushed to tomorrow → not missed.
+      if (pushed.has(`${task.id}|${key}`)) continue
       // Still in progress on this day → not missed.
       if (isProgressLive(progressByTask.get(task.id), key, { multiDay })) continue
 

@@ -1122,4 +1122,80 @@ describe('WorkerTasksClient', () => {
       imageUrls: ['/api/upload/photo.jpg'],
     })
   })
+
+  // ── #143 — role-aware day progress ──
+  const OPEN_LIST = {
+    id: 'c-open', name: 'OPENING', appearFromTime: null, activatedToday: false,
+    openNow: true, excludeFromProgress: false, taskIds: ['t1'],
+  }
+  const CLOSED_LIST = {
+    id: 'c-closed', name: 'CLOSING', appearFromTime: '23:00', activatedToday: false,
+    openNow: false, excludeFromProgress: false, taskIds: ['t2'],
+  }
+
+  it('counts only the unlocked lists for STAFF', async () => {
+    mockTasks(
+      [BASE_TASK, { ...BASE_TASK, id: 't2', title: 'CLOSE DOWN' }],
+      [OPEN_LIST, CLOSED_LIST],
+    )
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText(/0 OF 1 TASKS DONE/)).toBeDefined())
+    expect(screen.queryByText(/0 OF 2 TASKS DONE/)).toBeNull()
+  })
+
+  it('counts the whole day for a MANAGER', async () => {
+    mockTasks(
+      [BASE_TASK, { ...BASE_TASK, id: 't2', title: 'CLOSE DOWN' }],
+      [OPEN_LIST, CLOSED_LIST],
+    )
+    render(<WorkerTasksClient role="MANAGER" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText(/0 OF 2 TASKS DONE/)).toBeDefined())
+  })
+
+  it('leaves a list excluded from progress out of both roles', async () => {
+    mockTasks(
+      [BASE_TASK, { ...BASE_TASK, id: 't2', title: 'SIDE WORK' }],
+      [
+        { ...OPEN_LIST, id: 'c-main', taskIds: ['t1'] },
+        { ...OPEN_LIST, id: 'c-side', taskIds: ['t2'], excludeFromProgress: true },
+      ],
+    )
+    render(<WorkerTasksClient role="MANAGER" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText(/0 OF 1 TASKS DONE/)).toBeDefined())
+  })
+
+  it('offers FINISH TOMORROW only when the list allows it', async () => {
+    mockTasks([{ ...BASE_TASK, canPushToTomorrow: false }])
+    const { unmount } = render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+    expect(screen.queryByText('FINISH TOMORROW')).toBeNull()
+    unmount()
+
+    mockTasks([{ ...BASE_TASK, canPushToTomorrow: true }])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+    await waitFor(() => expect(screen.getByText('FINISH TOMORROW')).toBeDefined())
+  })
+
+  it('posts the push and reloads when the worker finishes tomorrow', async () => {
+    const fetchMock = mockTasks([{ ...BASE_TASK, canPushToTomorrow: true }])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+    await waitFor(() => expect(screen.getByText('FINISH TOMORROW')).toBeDefined())
+    fireEvent.click(screen.getByText('FINISH TOMORROW'))
+
+    await waitFor(() => {
+      const push = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/tasks/t1/push' && (init as RequestInit)?.method === 'POST',
+      )
+      expect(push).toBeDefined()
+    })
+  })
 })

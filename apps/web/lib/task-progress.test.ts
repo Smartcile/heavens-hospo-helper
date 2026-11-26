@@ -3,13 +3,16 @@ import {
   progressDayKey,
   isProgressLive,
   isStaleProgress,
+  isPushedToFuture,
   carryTaskToday,
 } from './task-progress'
 
 const TODAY = '2026-11-08'
 const YESTERDAY = '2026-11-07'
+const TOMORROW = '2026-11-09'
 const todayDate = new Date('2026-11-08T00:00:00.000Z')
 const yesterdayDate = new Date('2026-11-07T00:00:00.000Z')
+const tomorrowDate = new Date('2026-11-09T00:00:00.000Z')
 
 describe('progressDayKey', () => {
   it('formats a Prisma Date using UTC parts', () => {
@@ -133,6 +136,49 @@ describe('carryTaskToday', () => {
         todayKey: TODAY,
         multiDay: true,
       }),
+    ).toBe(true)
+  })
+})
+
+describe('FINISH TOMORROW pushes (#143)', () => {
+  it('flags a push whose day is still ahead', () => {
+    expect(isPushedToFuture(tomorrowDate, TODAY)).toBe(true)
+    expect(isPushedToFuture(TOMORROW, TODAY)).toBe(true)
+    expect(isPushedToFuture(todayDate, TODAY)).toBe(false)
+    expect(isPushedToFuture(yesterdayDate, TODAY)).toBe(false)
+    expect(isPushedToFuture(null, TODAY)).toBe(false)
+  })
+
+  it('hides a pushed task even when it is due today', () => {
+    expect(
+      carryTaskToday({
+        isDueToday: true,
+        progress: { progressDate: todayDate, pushedToDate: tomorrowDate },
+        todayKey: TODAY,
+        multiDay: false,
+        completedToday: false,
+      }),
+    ).toBe(false)
+  })
+
+  it('brings the task back on the push day', () => {
+    expect(
+      carryTaskToday({
+        isDueToday: true,
+        progress: { progressDate: yesterdayDate, pushedToDate: todayDate },
+        todayKey: TODAY,
+        multiDay: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('never sweeps a future push as stale', () => {
+    expect(
+      isStaleProgress(yesterdayDate, TODAY, { pushedToDate: tomorrowDate }),
+    ).toBe(false)
+    // A push that has already arrived can be swept like any other partial.
+    expect(
+      isStaleProgress(yesterdayDate, TODAY, { pushedToDate: todayDate }),
     ).toBe(true)
   })
 })

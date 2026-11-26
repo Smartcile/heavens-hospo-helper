@@ -11,6 +11,8 @@ import { formatDateKey } from '@/lib/scheduling'
 
 export interface ProgressLike {
   progressDate: Date | string | null | undefined
+  /** #143 — the day a FINISH TOMORROW push revives the task. */
+  pushedToDate?: Date | string | null
 }
 
 /**
@@ -40,15 +42,29 @@ export function isProgressLive(
 }
 
 /**
- * Stale = a today-only partial that is not from today. Multi-day rows are never
- * stale. Used by the route's best-effort sweep.
+ * A push targets a day after today, so the task stays off today's floor. It is
+ * NOT stale: the stale sweep must never delete a future push.
+ */
+export function isPushedToFuture(
+  value: Date | string | null | undefined,
+  todayKey: string,
+): boolean {
+  const key = progressDayKey(value)
+  return !!key && key > todayKey
+}
+
+/**
+ * Stale = a today-only partial that is not from today. Multi-day rows and a
+ * push that has not reached its day yet are never stale. Used by the route's
+ * best-effort sweep.
  */
 export function isStaleProgress(
   value: Date | string | null | undefined,
   todayKey: string,
-  opts: { multiDay?: boolean } = {},
+  opts: { multiDay?: boolean; pushedToDate?: Date | string | null } = {},
 ): boolean {
   if (opts.multiDay) return false
+  if (isPushedToFuture(opts.pushedToDate, todayKey)) return false
   return progressDayKey(value) !== todayKey
 }
 
@@ -57,6 +73,9 @@ export function isStaleProgress(
  * already completed today (a live completion keeps the task settled even if a
  * later schedule/list edit means it is no longer due). `completedToday` defaults
  * to false so existing callers are unchanged.
+ *
+ * A FINISH TOMORROW push hides the task until its day even when it is due, and
+ * has no effect once that day arrives (#143).
  */
 export function carryTaskToday(args: {
   isDueToday: boolean
@@ -65,6 +84,7 @@ export function carryTaskToday(args: {
   multiDay: boolean
   completedToday?: boolean
 }): boolean {
+  if (args.progress && isPushedToFuture(args.progress.pushedToDate, args.todayKey)) return false
   if (args.isDueToday) return true
   if (args.completedToday) return true
   if (!args.progress) return false

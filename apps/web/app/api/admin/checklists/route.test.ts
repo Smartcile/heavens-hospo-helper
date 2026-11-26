@@ -135,6 +135,61 @@ describe('/api/admin/checklists multi-day', () => {
   })
 })
 
+describe('/api/admin/checklists progress + push flags', () => {
+  it('persists excludeFromProgress, allowPushToTomorrow and pushAlertAfter', async () => {
+    const res = await POST(req({
+      name: 'SIDE WORK',
+      venueId: 'v1',
+      taskIds: ['t1'],
+      excludeFromProgress: true,
+      allowPushToTomorrow: true,
+      pushAlertAfter: 5,
+    }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.checklist.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          excludeFromProgress: true,
+          allowPushToTomorrow: true,
+          pushAlertAfter: 5,
+        }),
+      }),
+    )
+  })
+
+  it('defaults the threshold when the list does not allow pushes', async () => {
+    await POST(req({ name: 'OPENING', venueId: 'v1', taskIds: ['t1'] }))
+
+    expect(prisma.checklist.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          excludeFromProgress: false,
+          allowPushToTomorrow: false,
+          pushAlertAfter: 3,
+        }),
+      }),
+    )
+  })
+
+  it('returns the flags on the list', async () => {
+    prisma.checklist.findMany.mockResolvedValue([{
+      id: 'c1', name: 'SIDE WORK', description: null, venueId: 'v1',
+      departmentId: null, sectionId: null, appearFromTime: null, activatedOn: null,
+      allowedOutcomes: [], requireOutcomeReason: false, multiDay: true,
+      excludeFromProgress: true, allowPushToTomorrow: true, pushAlertAfter: 4,
+      department: null, section: null, audiences: [], schedules: [], events: [], tasks: [],
+    }])
+
+    const res = await GET(getRequest('http://localhost/api/admin/checklists?venueId=v1'))
+    const body = await res.json()
+
+    expect(body[0].excludeFromProgress).toBe(true)
+    expect(body[0].allowPushToTomorrow).toBe(true)
+    expect(body[0].pushAlertAfter).toBe(4)
+  })
+})
+
 describe('/api/admin/checklists events', () => {
   it('creates the selected event links', async () => {
     prisma.calendarEvent.count.mockResolvedValue(2)

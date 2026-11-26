@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { normalisePushAlertAfter } from '@/lib/task-push'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
@@ -94,6 +95,9 @@ export async function GET() {
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
       multiDay: c.multiDay,
+      excludeFromProgress: c.excludeFromProgress,
+      allowPushToTomorrow: c.allowPushToTomorrow,
+      pushAlertAfter: c.pushAlertAfter,
       department: c.department,
       section: c.section,
       audiences: c.audiences,
@@ -117,7 +121,7 @@ export async function POST(req: Request) {
   if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences, excludeFromProgress, allowPushToTomorrow, pushAlertAfter } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
@@ -161,6 +165,9 @@ export async function POST(req: Request) {
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
       multiDay: !!multiDay,
+      excludeFromProgress: !!excludeFromProgress,
+      allowPushToTomorrow: !!allowPushToTomorrow,
+      pushAlertAfter: normalisePushAlertAfter(pushAlertAfter),
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
       tasks: {

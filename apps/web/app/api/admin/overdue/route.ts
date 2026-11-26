@@ -57,6 +57,18 @@ export async function GET(req: NextRequest) {
     },
     select: { taskId: true, scheduledDate: true, outcome: true },
   })
+  // #143 — a FINISH TOMORROW push is a deliberate deferral, never a miss.
+  const pushes = await prisma.taskPush.findMany({
+    where: {
+      taskId: { in: tasks.map((t) => t.id) },
+      fromDate: { gte: earliest },
+      deletedAt: null,
+    },
+    select: { taskId: true, fromDate: true },
+  })
+  const pushedSet = new Set(
+    pushes.map((p) => `${p.taskId}|${formatDateKey(p.fromDate)}`),
+  )
   const doneSet = new Set(
     completions
       .filter((c) => c.outcome === 'DONE' || c.outcome === 'NOT_REQUIRED')
@@ -84,6 +96,7 @@ export async function GET(req: NextRequest) {
       if (key < createdKey) continue
       if (!isTaskDueOnDate(t, d)) continue
       if (doneSet.has(`${t.id}|${key}`)) continue
+      if (pushedSet.has(`${t.id}|${key}`)) continue
 
       items.push({
         taskId: t.id,

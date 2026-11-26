@@ -114,6 +114,9 @@ interface Checklist {
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   multiDay?: boolean
+  excludeFromProgress?: boolean
+  allowPushToTomorrow?: boolean
+  pushAlertAfter?: number
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   audiences?: { kind: string; targetId: string }[]
@@ -263,6 +266,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clMultiDay, setClMultiDay] = useState(false)
+  const [clExcludeFromProgress, setClExcludeFromProgress] = useState(false)
+  const [clAllowPush, setClAllowPush] = useState(false)
+  const [clPushAlertAfter, setClPushAlertAfter] = useState('3')
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
   const [activateError, setActivateError] = useState('')
@@ -535,6 +541,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClSchedules([]); setClEventIds([]); setClAudiences([])
     void loadAudienceOptions(venueId)
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
+    setClExcludeFromProgress(false); setClAllowPush(false); setClPushAlertAfter('3')
     setFilterUsage('notinthis')
   }
   function openChecklistEdit(c: Checklist) {
@@ -553,6 +560,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     setClMultiDay(!!c.multiDay)
+    setClExcludeFromProgress(!!c.excludeFromProgress)
+    setClAllowPush(!!c.allowPushToTomorrow)
+    setClPushAlertAfter(String(c.pushAlertAfter ?? 3))
     // Auto-scope left panel filters to match this checklist
     if (c.venueId) setFilterVenue(c.venueId)
     if (c.departmentId) setFilterDept(c.departmentId)
@@ -600,7 +610,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, taskGroups: Object.fromEntries(clSelected.map((id) => [id, normaliseGroupLabel(clGroups[id])])), allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason, multiDay: clMultiDay }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, taskGroups: Object.fromEntries(clSelected.map((id) => [id, normaliseGroupLabel(clGroups[id])])), allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason, multiDay: clMultiDay, excludeFromProgress: clExcludeFromProgress, allowPushToTomorrow: clAllowPush, pushAlertAfter: Number(clPushAlertAfter) || 3 }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -1053,6 +1063,44 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <p className="font-mono text-xs uppercase text-grey-light pl-6">
                   A PARTIAL ON THIS LIST STAYS ON THE FLOOR ACROSS DAYS. WITHOUT THIS, A PARTIAL RESETS AT THE NEXT VENUE DAY.
                 </p>
+                <label className="flex items-start gap-2 cursor-pointer pt-2">
+                  <input
+                    type="checkbox"
+                    checked={clExcludeFromProgress}
+                    onChange={(e) => setClExcludeFromProgress(e.target.checked)}
+                    className="mt-0.5 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">EXCLUDE FROM DAY PROGRESS</span>
+                </label>
+                <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                  THIS LIST IS LEFT OUT OF THE DAY PROGRESS BAR FOR EVERYONE (E.G. SIDE WORK).
+                </p>
+                <label className="flex items-start gap-2 cursor-pointer pt-2">
+                  <input
+                    type="checkbox"
+                    checked={clAllowPush}
+                    onChange={(e) => setClAllowPush(e.target.checked)}
+                    className="mt-0.5 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">ALLOW FINISH TOMORROW</span>
+                </label>
+                <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                  TASKS IN THIS LIST CAN BE DEFERRED TO TOMORROW WITHOUT A COMPLETION. THE TASK RETURNS TOMORROW.
+                </p>
+                {clAllowPush && (
+                  <div className="flex items-center gap-2 pl-6">
+                    <label className="font-mono text-xs uppercase text-grey-light">ALERT AFTER</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={clPushAlertAfter}
+                      onChange={(e) => setClPushAlertAfter(e.target.value)}
+                      className="w-16 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                    />
+                    <span className="font-mono text-xs uppercase text-grey-light">PUSHES</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">

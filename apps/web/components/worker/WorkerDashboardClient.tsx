@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
+import { progressScope } from '@/lib/progress-scope'
 
 type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'breach-notices' | 'training-status' | 'tips' | 'help'
 
@@ -95,14 +96,19 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       if (r.status === 401) { router.push('/w/login'); return }
       if (!r.ok) return
       const tasks = await r.json()
-      const list: { isCompleted: boolean }[] = tasks.tasks ?? []
+      const list: { id: string; isDone: boolean; isSettled?: boolean }[] = tasks.tasks ?? []
+      const progress = progressScope({
+        tasks: list,
+        checklists: Array.isArray(tasks.checklists) ? tasks.checklists : [],
+        role,
+      })
       setData((prev) => prev
         ? {
             ...prev,
             firstName: tasks.firstName ?? prev.firstName,
-            tasksPending: list.filter((t) => !t.isCompleted).length,
-            tasksDone: list.filter((t) => t.isCompleted).length,
-            tasksTotal: list.length,
+            tasksPending: progress.total - progress.done,
+            tasksDone: progress.done,
+            tasksTotal: progress.total,
           }
         : prev)
     } catch {
@@ -154,9 +160,17 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     const tipsData = tipsR && tipsR.ok ? await tipsR.json().catch(() => ({ periods: [] })) : { periods: [] }
     const latestTips = Array.isArray(tipsData?.periods) ? tipsData.periods[0] : null
 
-    const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
-    const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
-
+    // #143 — the tile uses the same role-aware, DONE-only rule as the header.
+    // A settled NOT_REQUIRED / DID_NOT_COMPLETE row is not "done", and a list
+    // excluded from progress is in neither figure.
+    const list: { id: string; isDone: boolean; isSettled?: boolean }[] = tasks.tasks ?? []
+    const progress = progressScope({
+      tasks: list,
+      checklists: Array.isArray(tasks.checklists) ? tasks.checklists : [],
+      role,
+    })
+    const pending = progress.total - progress.done
+    const done = progress.done
     const guideItems = guides.items ?? []
     const newGuides = guideItems.filter((t: { completed: boolean }) => !t.completed).length
 
@@ -164,7 +178,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       firstName: tasks.firstName ?? '',
       tasksPending: pending,
       tasksDone: done,
-      tasksTotal: (tasks.tasks ?? []).length,
+      tasksTotal: progress.total,
       unackedNotices: notices.unackedRequired ?? 0,
       unreadNotices: notices.items?.length ?? 0,
       upcomingShifts: (cal.shifts ?? []).length,

@@ -19,6 +19,7 @@ import { moveItem } from '@/lib/array'
 import { availableParentTasks, orderTasksWithChildren, subtasksOutsideList } from '@/lib/task-subtasks'
 import { groupChecklistTasks, normaliseGroupLabel } from '@/lib/task-groups'
 import { groupCustomTasks } from '@/lib/custom-tasks'
+import { progressScope } from '@/lib/progress-scope'
 import { TaskThread } from '@/components/tasks/TaskThread'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
@@ -80,6 +81,9 @@ interface ChecklistFull {
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   multiDay?: boolean
+  excludeFromProgress?: boolean
+  allowPushToTomorrow?: boolean
+  pushAlertAfter?: number
   audiences?: { kind: string; targetId: string }[]
   tasks: { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null }[]
 }
@@ -94,6 +98,8 @@ interface ChecklistSummary {
   openNow?: boolean
   opensNext?: string | null
   taskIds: string[]
+  /** #143 — this list is left out of the day progress bar. */
+  excludeFromProgress?: boolean
   /** Checklist-scoped group label per task id (null/absent = ungrouped). */
   taskGroups?: Record<string, string | null>
 }
@@ -146,6 +152,7 @@ export function WorkerTasksClient({
 
   const [tasks, setTasks] = useState<TaskState[]>([])
   const [checklists, setChecklists] = useState<ChecklistSummary[]>([])
+  const [deferredCount, setDeferredCount] = useState(0)
   const [firstName, setFirstName] = useState('')
   const [staffId, setStaffId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -155,6 +162,7 @@ export function WorkerTasksClient({
   const [readingValue, setReadingValue] = useState('')
   const [outcome, setOutcome] = useState<TaskOutcome>('DONE')
   const [completing, setCompleting] = useState(false)
+  const [pushing, setPushing] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const [undoingId, setUndoingId] = useState<string | null>(null)
   const [undoError, setUndoError] = useState('')
@@ -207,6 +215,9 @@ export function WorkerTasksClient({
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clMultiDay, setClMultiDay] = useState(false)
+  const [clExcludeFromProgress, setClExcludeFromProgress] = useState(false)
+  const [clAllowPush, setClAllowPush] = useState(false)
+  const [clPushAlertAfter, setClPushAlertAfter] = useState('3')
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clGroups, setClGroups] = useState<Record<string, string>>({})
   const [clSaving, setClSaving] = useState(false)
@@ -300,6 +311,7 @@ export function WorkerTasksClient({
     const data = await r.json()
     setTasks(data.tasks)
     setChecklists(data.checklists ?? [])
+    setDeferredCount(data.deferredCount ?? 0)
     setFirstName(data.firstName)
     setStaffId(data.staffId ?? '')
     if (data.access) setAccess(data.access as WorkerTaskAccess)
@@ -512,6 +524,38 @@ export function WorkerTasksClient({
     }
   }
 
+  // FINISH TOMORROW (#143) — defer the task to the next venue day. Writes no
+  // completion, so retraining/reporting never fire; the task simply returns.
+  async function handleFinishTomorrow() {
+    if (!activeTask) return
+    setPushing(true)
+    setCompletionError('')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20_000)
+    try {
+      const r = await fetch(`/api/worker/tasks/${activeTask.id}/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: note || null }),
+        signal: controller.signal,
+      })
+      if (r.status === 401) { router.push('/w/login'); return }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setCompletionError(data.error ?? 'COULD NOT FINISH TOMORROW')
+        return
+      }
+      setActiveTask(null)
+      await load()
+    } catch (err) {
+      const aborted = (err as Error)?.name === 'AbortError'
+      setCompletionError(aborted ? 'REQUEST TIMED OUT — TRY AGAIN' : 'COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      clearTimeout(timeout)
+      setPushing(false)
+    }
+  }
+
   // ── Edit mode handlers ──
 
   function toggleDay(day: number) {
@@ -667,6 +711,7 @@ export function WorkerTasksClient({
     setClAppearFrom(''); setClGlobalTo(''); setClError(''); setClModalOpen(true)
     setClSchedules([]); setClEventIds([]); setClAudiences([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
+    setClExcludeFromProgress(false); setClAllowPush(false); setClPushAlertAfter('3')
   }
 
   function openChecklistEdit(c: ChecklistFull) {
@@ -683,6 +728,9 @@ export function WorkerTasksClient({
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     setClMultiDay(!!c.multiDay)
+    setClExcludeFromProgress(!!c.excludeFromProgress)
+    setClAllowPush(!!c.allowPushToTomorrow)
+    setClPushAlertAfter(String(c.pushAlertAfter ?? 3))
     setClError(''); setClModalOpen(true)
   }
 
@@ -734,6 +782,9 @@ export function WorkerTasksClient({
       audiences: clAudiences,
       allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
       multiDay: clMultiDay,
+      excludeFromProgress: clExcludeFromProgress,
+      allowPushToTomorrow: clAllowPush,
+      pushAlertAfter: Number(clPushAlertAfter) || 3,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
@@ -828,6 +879,20 @@ export function WorkerTasksClient({
     cl.openNow !== undefined
       ? cl.openNow
       : cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
+
+  // #143 — STAFF sees only the work that is unlocked right now (plus no-list
+  // and already-settled work); a manager sees the whole day. A list marked
+  // "exclude from progress" (e.g. side work) is in neither figure.
+  const progress = progressScope({
+    tasks,
+    checklists: checklists.map((c) => ({
+      id: c.id,
+      taskIds: c.taskIds,
+      openNow: isOpen(c),
+      excludeFromProgress: !!c.excludeFromProgress,
+    })),
+    role,
+  })
 
   const listsByTask = new Map<string, ChecklistSummary[]>()
   for (const cl of checklists) {
@@ -1150,7 +1215,8 @@ export function WorkerTasksClient({
               {getGreeting()}, {firstName}
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">
-              {done.length} OF {tasks.length} TASKS DONE{handled.length > 0 ? ` · ${handled.length} HANDLED` : ''}
+              {progress.done} OF {progress.total} TASKS DONE{handled.length > 0 ? ` · ${handled.length} HANDLED` : ''}
+              {deferredCount > 0 ? ` · ${deferredCount} DEFERRED` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1272,7 +1338,7 @@ export function WorkerTasksClient({
           <div className="mt-3 bg-grey-mid h-1.5">
             <div
               className="h-full bg-success transition-all duration-500"
-              style={{ width: `${tasks.length > 0 ? (done.length / tasks.length) * 100 : 0}%` }}
+              style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
             />
           </div>
         )}
@@ -1731,6 +1797,22 @@ export function WorkerTasksClient({
                 })}
               </div>
             </div>
+
+            {activeTask.canPushToTomorrow && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={handleFinishTomorrow}
+                  disabled={pushing || completing}
+                  className="w-full border border-warning text-warning font-mono text-xs uppercase font-bold tracking-wider px-3 py-3 hover:bg-warning hover:text-black transition-colors disabled:opacity-40"
+                >
+                  {pushing ? 'DEFERRING...' : 'FINISH TOMORROW'}
+                </button>
+                <p className="font-mono text-xs uppercase text-grey-light">
+                  THE TASK LEAVES TODAY&apos;S LIST AND COMES BACK TOMORROW. NO COMPLETION IS RECORDED.
+                </p>
+              </div>
+            )}
 
             {activeTask.completionType === 'READING' && outcome === 'DONE' && (
               <div className="space-y-2">
@@ -2309,6 +2391,44 @@ export function WorkerTasksClient({
               <p className="font-mono text-xs uppercase text-grey-light pl-6">
                 A PARTIAL ON THIS LIST STAYS ON THE FLOOR ACROSS DAYS. WITHOUT THIS, A PARTIAL RESETS AT THE NEXT VENUE DAY.
               </p>
+              <label className="flex items-start gap-2 cursor-pointer pt-2">
+                <input
+                  type="checkbox"
+                  checked={clExcludeFromProgress}
+                  onChange={(e) => setClExcludeFromProgress(e.target.checked)}
+                  className="mt-0.5 accent-white"
+                />
+                <span className="font-mono text-xs uppercase text-white">EXCLUDE FROM DAY PROGRESS</span>
+              </label>
+              <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                THIS LIST IS LEFT OUT OF THE DAY PROGRESS BAR FOR EVERYONE (E.G. SIDE WORK).
+              </p>
+              <label className="flex items-start gap-2 cursor-pointer pt-2">
+                <input
+                  type="checkbox"
+                  checked={clAllowPush}
+                  onChange={(e) => setClAllowPush(e.target.checked)}
+                  className="mt-0.5 accent-white"
+                />
+                <span className="font-mono text-xs uppercase text-white">ALLOW FINISH TOMORROW</span>
+              </label>
+              <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                TASKS IN THIS LIST CAN BE DEFERRED TO TOMORROW WITHOUT A COMPLETION. THE TASK RETURNS TOMORROW.
+              </p>
+              {clAllowPush && (
+                <div className="flex items-center gap-2 pl-6">
+                  <label className="font-mono text-xs uppercase text-grey-light">ALERT AFTER</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={clPushAlertAfter}
+                    onChange={(e) => setClPushAlertAfter(e.target.value)}
+                    className="w-16 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-grey-light">PUSHES</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1">

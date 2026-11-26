@@ -72,6 +72,31 @@ describe('PUT /api/worker/checklists/[id] schedules', () => {
   })
 })
 
+describe('PUT /api/worker/checklists/[id] progress + push flags', () => {
+  it('updates the flags when present', async () => {
+    const res = await PUT(
+      req({ excludeFromProgress: true, allowPushToTomorrow: true, pushAlertAfter: 2 }),
+      { params: { id: 'c1' } },
+    )
+
+    expect(res.status).toBe(200)
+    expect(prisma.checklist.update.mock.calls[0][0].data).toMatchObject({
+      excludeFromProgress: true,
+      allowPushToTomorrow: true,
+      pushAlertAfter: 2,
+    })
+  })
+
+  it('leaves the flags untouched when omitted', async () => {
+    await PUT(req({ name: 'RENAMED' }), { params: { id: 'c1' } })
+
+    const data = prisma.checklist.update.mock.calls[0][0].data
+    expect(data).not.toHaveProperty('excludeFromProgress')
+    expect(data).not.toHaveProperty('allowPushToTomorrow')
+    expect(data).not.toHaveProperty('pushAlertAfter')
+  })
+})
+
 describe('PUT /api/worker/checklists/[id] events', () => {
   it('replaces the linked events wholesale', async () => {
     prisma.calendarEvent.count.mockResolvedValue(1)
