@@ -28,6 +28,19 @@ import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, comput
 import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
 import {
+  pushHistory as recordHistory,
+  undoHistory,
+  redoHistory,
+} from '@/lib/floorplan-history'
+import {
+  clampToRoom,
+  zoomAroundCenter,
+  nudgeDirectionForKey,
+  nudgeStep,
+  nudgeDelta,
+  isTypingTarget,
+} from '@/lib/floorplan-pointer'
+import {
   RoomSetupModal,
   emptyRoomSetupDraft,
   roomSetupDraftFrom,
@@ -44,6 +57,7 @@ interface SectionZone {
   height: number
   sectionId: string
   label?: string
+  labelScale?: number
 }
 
 interface Section { id: string; name: string; colour: string | null; departmentId: string; department?: { id: string; name: string; colour: string | null } }
@@ -112,6 +126,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   type HistorySnapshot = { elements: ElementData[]; setupItems: SetupItemInput[]; zones: SectionZone[] }
   const historyRef = useRef<{ past: HistorySnapshot[]; future: HistorySnapshot[] }>({ past: [], future: [] })
+  /** Per-action save feedback: what changed, and whether SAVE has run since. */
+  const [dirty, setDirty] = useState(false)
+  const [lastAction, setLastAction] = useState('')
 
   // Load ghost tables from first setup for base plan preview
   useEffect(() => {
@@ -138,25 +155,32 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setZones(s.zones)
   }
 
-  function pushHistory() {
-    historyRef.current.past.push(snapshot())
-    historyRef.current.future = []
+  function pushHistory(label?: string) {
+    recordHistory(historyRef.current, snapshot())
+    setDirty(true)
+    setLastAction(label ?? '')
   }
 
   function undo() {
-    const { past, future } = historyRef.current
-    if (past.length === 0) return
-    const prev = past.pop()!
-    future.push(snapshot())
-    restore(prev)
+    const previous = undoHistory(historyRef.current, snapshot())
+    if (!previous) return
+    restore(previous)
   }
 
   function redo() {
-    const { past, future } = historyRef.current
-    if (future.length === 0) return
-    const next = future.pop()!
-    past.push(snapshot())
+    const next = redoHistory(historyRef.current, snapshot())
+    if (!next) return
     restore(next)
+  }
+
+  function updateZones(fn: (prev: SectionZone[]) => SectionZone[]) {
+    setDirty(true)
+    setZones(fn)
+  }
+
+  /** Edit one zone from the inspector; keeps the unsaved indicator honest. */
+  function patchZone(id: string, patch: Partial<SectionZone>) {
+    updateZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
   }
 
   // ── Setup layer functions ──
@@ -299,14 +323,19 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     handleSetupChange(fallback?.id ?? null)
   }
 
-  function handleSetupItemDragEnd(id: string, x: number, y: number) {
-    pushHistory()
+  function handleSetupItemDragEnd(id: string, x: number, y: number, sectionId?: string | null) {
+    pushHistory('MOVED')
     setSetupItems(prev => {
       const item = prev.find(i => i.id === id)
       if (!item) return prev
       const dx = x - item.x; const dy = y - item.y
       const place = (it: SetupItemInput, nx: number, ny: number): SetupItemInput => ({
-        ...it, x: nx, y: ny, sectionId: sectionForPoint(nx + it.width / 2, ny + it.depth / 2),
+        ...it,
+        x: nx,
+        y: ny,
+        sectionId: it.id === id && sectionId !== undefined
+          ? sectionId
+          : sectionForPoint(nx + it.width / 2, ny + it.depth / 2),
       })
       // Move the whole group as a unit when the dragged table is grouped
       if (item.tableGroupId) {
@@ -319,9 +348,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
   }
 
-  // Auto-join two same-profile tables dragged flush together (Phase 2).
+  // Join two same-profile tables. Deliberate only: the canvas requires a long
+  // overlap (or Shift), never a small accidental nudge.
   // Uses a temporary group id; real TableGroup rows are materialised on save.
   function handleSetupItemsJoin(draggedId: string, targetId: string) {
+    pushHistory('JOINED')
     setSetupItems(prev => {
       const dragged = prev.find(i => i.id === draggedId)
       const target = prev.find(i => i.id === targetId)
@@ -335,10 +366,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         return i
       })
     })
-  }
-
-  function handleSetupItemDropToSection(id: string, sectionId: string) {
-    setSetupItems(prev => prev.map(i => i.id === id ? { ...i, sectionId } : i))
   }
 
   function handleInventoryCheck() {
@@ -368,6 +395,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
     if (r.ok) {
       const group = await r.json()
+      pushHistory('GROUPED')
       setSetupItems(prev => prev.map(i =>
         setupSelectedIds.includes(i.id) ? { ...i, tableGroupId: group.id } : i
       ))
@@ -380,6 +408,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const item = setupItems.find(i => i.id === setupSelectedIds[0])
     if (!item?.tableGroupId) return
     await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups/${item.tableGroupId}`, { method: 'DELETE' })
+    pushHistory('UNGROUPED')
     setSetupItems(prev => prev.map(i =>
       i.tableGroupId === item.tableGroupId ? { ...i, tableGroupId: null } : i
     ))
@@ -575,6 +604,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const sectionMap = new Map(sections.map((s) => [s.id, s]))
 
   function updateElement(id: string, patch: Partial<ElementData>) {
+    setDirty(true)
     setElements((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e))
   }
 
@@ -586,16 +616,74 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSelectedIds([])
   }
 
+  /**
+   * Fine placement without mouse precision: arrow keys nudge the selection by
+   * one grid unit (Shift = 1 cm). Typing in a dimension field is never hijacked.
+   */
+  function nudgeSelection(direction: 'up' | 'down' | 'left' | 'right', shift: boolean) {
+    const step = nudgeStep(shift, plan.gridUnit)
+    const delta = nudgeDelta(direction, step)
+
+    if (setupSelectedIds.length > 0) {
+      pushHistory('NUDGED')
+      const ids = new Set(setupSelectedIds)
+      setSetupItems((prev) => prev.map((item) => {
+        if (!ids.has(item.id)) return item
+        return {
+          ...item,
+          x: clampToRoom(item.x + delta.x, item.width, plan.roomWidth),
+          y: clampToRoom(item.y + delta.y, item.depth, plan.roomDepth),
+        }
+      }))
+      return
+    }
+
+    if (selectedIds.length > 0) {
+      pushHistory('NUDGED')
+      const ids = new Set(selectedIds)
+      setElements((prev) => prev.map((el) => {
+        if (!ids.has(el.id!)) return el
+        return {
+          ...el,
+          x: clampToRoom(el.x + delta.x, el.width, plan.roomWidth),
+          y: clampToRoom(el.y + delta.y, el.depth, plan.roomDepth),
+        }
+      }))
+      return
+    }
+
+    if (zoneDrawing && selectedZoneId) {
+      pushHistory('NUDGED')
+      setZones((prev) => prev.map((z) => z.id === selectedZoneId
+        ? { ...z, x: Math.max(0, z.x + delta.x), y: Math.max(0, z.y + delta.y) }
+        : z))
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape' && armedFurnitureId) {
       e.preventDefault()
       setArmedFurnitureId(null)
       return
     }
+    // Arrow keys, Delete and Ctrl+Z belong to the text field while typing.
+    if (isTypingTarget(e.target)) return
+    const direction = nudgeDirectionForKey(e.key)
+    if (direction) {
+      e.preventDefault()
+      nudgeSelection(direction, e.shiftKey)
+      return
+    }
     if (e.key === 'Delete') {
       if (setupSelectedIds.length > 0) { e.preventDefault(); deleteSetupSelected(); return }
       if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
-      if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
+      if (zoneDrawing && selectedZoneId) {
+        e.preventDefault()
+        pushHistory('DELETED')
+        setZones((prev) => prev.filter((z) => z.id !== selectedZoneId))
+        setSelectedZoneId(null)
+        return
+      }
     }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'z' && e.shiftKey) {
@@ -633,6 +721,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         zones: zones.length > 0 ? zones : undefined,
       }),
     })
+    if (!r.ok) {
+      setSaving(false)
+      pushToast('COULD NOT SAVE THE PLAN — TRY AGAIN.', 'error')
+      return
+    }
     if (r.ok) {
       const res = await r.json()
       const saved: { id: string; _clientId: string }[] = res.saved ?? []
@@ -646,6 +739,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       )
     }
     // Save setup items (always when a setup is active, so deletions persist)
+    let failed = false
     if (activeSetupId) {
       try {
         // Collect temp groups (client-side joins not yet materialised as TableGroup rows)
@@ -696,10 +790,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             else if (groupId?.startsWith('new_group_')) groupId = null
             return { ...i, id: realId, tableGroupId: groupId }
           }))
+        } else {
+          failed = true
         }
-      } catch {}
+      } catch {
+        failed = true
+      }
     }
     setSaving(false)
+    if (failed) {
+      pushToast('COULD NOT SAVE THE LAYOUT ITEMS — TRY AGAIN.', 'error')
+      return
+    }
+    setDirty(false)
+    setLastAction('')
+    pushToast('PLAN SAVED', 'success')
   }
 
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
@@ -841,6 +946,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <span
+            className={`font-mono text-xs uppercase tracking-wider ${dirty ? 'text-warning' : 'text-success'}`}
+            data-testid="save-state"
+          >
+            {dirty ? `UNSAVED${lastAction ? ` · ${lastAction}` : ''}` : 'SAVED'}
+          </span>
           <Button onClick={handleSave} loading={saving} size="sm">SAVE</Button>
           <button onClick={undo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↶</button>
           <button onClick={redo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↷</button>
@@ -919,7 +1030,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
       {/* ── CONTEXT TOOLBAR ── */}
       <div className="flex items-center gap-2 px-4 py-1.5 border-b border-grey-mid bg-black flex-wrap">
-        <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
+        <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none"
+          title="Snap a released item to the grid and to a flush neighbour. Hold Alt while dragging to ignore it.">
           <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
           GRID
         </label>
@@ -982,7 +1094,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             className="w-16 accent-white" />
           <span className="font-mono text-xs text-grey-light w-5">{textScale.toFixed(1)}×</span>
         </div>
-        <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
+        <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => {
+          // Re-anchor the pan on the viewport centre so zooming out does not
+          // step the plan away from where the user is looking.
+          const el = containerRef.current
+          const vs = viewRef.current
+          const next = zoomAroundCenter(vs, z, el?.clientWidth ?? 0, el?.clientHeight ?? 0)
+          vs.zoom = next.zoom
+          vs.panX = next.panX
+          vs.panY = next.panY
+          setZoomLevel(next.zoom)
+          setRebuildKey((k) => k + 1)
+        }}
           showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
       </div>
 
@@ -1029,9 +1152,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 setSelectedIds((prev) => prev.length === 1 && prev[0] === id ? prev : [id])
               }
             }}
-            onElementDragEnd={(id, x, y) => { pushHistory(); updateElement(id, { x, y }) }}
+            onElementDragEnd={(id, x, y, sectionId) => {
+              pushHistory('MOVED')
+              updateElement(id, { x, y, ...(sectionId ? { sectionId } : {}) })
+            }}
             onZoneClick={(id) => setSelectedZoneId(id)}
-            onZoneDragEnd={(id, x, y) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y } : z))}
+            onZoneDragEnd={(id, x, y) => {
+              pushHistory('MOVED ZONE')
+              setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y } : z))
+            }}
+            onZoneResizeStart={() => pushHistory('RESIZED ZONE')}
             onZoneResize={(id, x, y, w, h) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y, width: w, height: h } : z))}
             onZoneDrawStart={(x, y) => {
               const gu = plan.gridUnit
@@ -1054,6 +1184,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               const sx = snap(cx, gu); const sy = snap(cy, gu)
               const w = Math.abs(sx - s.x); const h = Math.abs(sy - s.y)
               if (w > gu && h > gu) {
+                pushHistory('DREW ZONE')
                 setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(s.x, sx), y: Math.min(s.y, sy), width: w, height: h, sectionId: zoneSectionId }])
               }
               setZoneDrawRect(null); setSelectedZoneId(null); setZoneDrawStart(null)
@@ -1118,7 +1249,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             zoneTotals={activeSetupId ? zoneTotals : undefined}
             setupActive={!!activeSetupId}
             sectionBoundaries={activeSetupId ? sectionBoundaries : undefined}
-            onElementDropToSection={activeSetupId ? handleSetupItemDropToSection : undefined}
           />
         </div>
 
@@ -1339,7 +1469,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <p className="font-mono text-xs text-grey-light uppercase tracking-wider">ROTATION</p>
                     <div className="flex flex-wrap gap-1">
                       {[0, 45, 90, 135, 180, 270].map((angle) => (
-                        <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
+                        <button key={angle} onClick={() => { pushHistory('ROTATED'); updateElement(selected.id!, { rotation: angle }) }}
                           className={`font-mono text-xs px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
                           {angle}°
                         </button>
@@ -1348,6 +1478,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   </Panel>
                   <Panel variant="outline" className="space-y-2">
                     <p className="font-mono text-xs text-grey-light uppercase tracking-wider">POSITION</p>
+                    <p className="font-mono text-xs text-grey-light">ARROWS NUDGE · SHIFT = 1 CM</p>
                     <div className="grid grid-cols-2 gap-2">
                       <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
                         onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
@@ -1505,6 +1636,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       if (zonePolyPoints.length < 3) return
                       const xs = zonePolyPoints.map((p) => p.x); const ys = zonePolyPoints.map((p) => p.y)
                       const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+                      pushHistory('DREW ZONE')
                       setZones((prev) => [...prev, {
                         id, sectionId: zoneSectionId,
                         x: Math.min(...xs), y: Math.min(...ys),
@@ -1558,25 +1690,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 return (
                   <div className="border-t border-grey-mid pt-2 space-y-2">
                     <Input label="X (cm)" type="number" step="10" value={Math.round(z.x).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))}
-                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: snap(x.x, plan.gridUnit) } : x))} />
+                      onChange={(e) => patchZone(z.id, { x: parseFloat(e.target.value) || 0 })}
+                      onBlur={() => patchZone(z.id, { x: snap(z.x, plan.gridUnit) })} />
                     <Input label="Y (cm)" type="number" step="10" value={Math.round(z.y).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))}
-                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: snap(x.y, plan.gridUnit) } : x))} />
+                      onChange={(e) => patchZone(z.id, { y: parseFloat(e.target.value) || 0 })}
+                      onBlur={() => patchZone(z.id, { y: snap(z.y, plan.gridUnit) })} />
                     <div className="grid grid-cols-2 gap-2">
                     <Input label="W" type="number" step="10" value={Math.round(z.width).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
-                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(snap(x.width, plan.gridUnit), plan.gridUnit) } : x))} />
+                      onChange={(e) => patchZone(z.id, { width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) })}
+                      onBlur={() => patchZone(z.id, { width: Math.max(snap(z.width, plan.gridUnit), plan.gridUnit) })} />
                     <Input label="H" type="number" step="10" value={Math.round(z.height).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
-                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(snap(x.height, plan.gridUnit), plan.gridUnit) } : x))} />
+                      onChange={(e) => patchZone(z.id, { height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) })}
+                      onBlur={() => patchZone(z.id, { height: Math.max(snap(z.height, plan.gridUnit), plan.gridUnit) })} />
                     </div>
                     <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((z as any).labelScale ?? 1).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } : x))} />
+                      onChange={(e) => patchZone(z.id, { labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) })} />
                     <Select label="Section" value={z.sectionId}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: e.target.value } : x))}
+                      onChange={(e) => patchZone(z.id, { sectionId: e.target.value })}
                       options={sections.map((s) => ({ value: s.id, label: s.name }))} />
                     <button onClick={() => {
+                      pushHistory('DELETED ZONE')
                       setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
                       setSelectedZoneId(null)
                     }}

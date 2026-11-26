@@ -243,7 +243,6 @@ export function WorkerFloorPlan() {
               if (id) { const el = plan.elements.find((e) => e.id === id); if (el) setInfoPanel(el) }
               else setInfoPanel(null)
             }}
-            onElementDragEnd={() => {}}
             onZoneClick={() => {}}
             onZoneDragEnd={() => {}}
             onZoneDrawStart={() => {}}
