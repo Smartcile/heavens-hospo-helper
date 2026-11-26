@@ -53,6 +53,8 @@ interface WorkerRequest {
   scope: AvailabilityScope
   action: 'SET' | 'CLEAR'
   seriesId: string | null
+  /** Every day the request targets (server-computed; falls back to the anchor). */
+  targetDates?: string[]
   reason?: string | null
   payload?: { availability?: { notes?: string | null } | null } | null
 }
@@ -115,7 +117,14 @@ export function WorkerAvailabilityClient() {
     return map
   }, [data])
 
-  const requestDates = useMemo(() => new Set((data?.requests ?? []).map((r) => r.date)), [data])
+  const requestDates = useMemo(() => {
+    const set = new Set<string>()
+    for (const req of data?.requests ?? []) {
+      const dates = req.targetDates && req.targetDates.length > 0 ? req.targetDates : [req.date]
+      for (const d of dates) if (d) set.add(d)
+    }
+    return set
+  }, [data])
   const cells = useMemo(() => monthGrid(month.year, month.month), [month])
   const weekDays = useMemo(() => (view === 'week' ? weekKeys(weekStart) : []), [view, weekStart])
   function changeView(next: 'month' | 'week') {
@@ -143,6 +152,7 @@ export function WorkerAvailabilityClient() {
   }
 
   function resultMessage(mode: string, skipped: number) {
+    if (mode === 'UNCHANGED') return 'NOTHING CHANGED — YOUR AVAILABILITY STAYS AS IT IS'
     if (mode === 'REQUEST') return 'EDIT REQUEST SENT — YOUR MANAGER WILL CONFIRM'
     if (skipped > 0) return `SAVED · ${skipped} PROTECTED DAY${skipped === 1 ? '' : 'S'} LEFT UNCHANGED`
     return 'SAVED'
@@ -449,6 +459,7 @@ export function WorkerAvailabilityClient() {
             allowedScopes={WORKER_EDIT_SCOPES}
             allowSeriesEnd={false}
             initialScope="THIS"
+            pendingRequest={requestDates.has(selected)}
             canRequestRemoval={!!selectedEntry?.seriesId}
             onRequestSeriesRemoval={() => setRemovalOpen(true)}
             busy={saving}

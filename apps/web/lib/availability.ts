@@ -229,6 +229,97 @@ export function requestTargetDates(
   return [...new Set(dates)].sort()
 }
 
+/** The minimal state compared by `availabilitySignature` / `sameAvailability`. */
+export interface AvailabilityComparable {
+  isAllDay: boolean
+  type: AvailabilityType
+  startTime?: string | null
+  endTime?: string | null
+  windows?: AvailabilityWindow[] | null
+  timeOff: boolean
+}
+
+/**
+ * A canonical signature for a day's availability: which of the 96 quarter-hour
+ * slots are free, plus the time-off flag. An all-day declaration maps to its
+ * full-day equivalent and a windowed day runs through the free-window algebra,
+ * so a legacy partial segment and its auto-complemented form compare equal.
+ * `notes` is deliberately excluded — it mirrors the comment thread and must
+ * never make a re-save look like a change. PREFERRED (the legacy casual opt-in)
+ * is marked so it never silently becomes plain AVAILABLE.
+ */
+export function availabilitySignature(entry: AvailabilityComparable): string {
+  const free = freeWindows(entry)
+  let slots = ''
+  for (let start = 0; start < MINUTES_PER_DAY; start += SLOT_MINUTES) {
+    const end = start + SLOT_MINUTES
+    const isFree = free.some((w) => minutesOfTime(w.startTime) < end && start < minutesOfTime(w.endTime))
+    slots += isFree ? '1' : '0'
+  }
+  return `${entry.type === 'PREFERRED' ? 'P' : '-'}${entry.timeOff ? '1' : '0'}:${slots}`
+}
+
+/**
+ * True when the proposed entry changes nothing about the current one. A
+ * missing current entry is always a change. Callers compare per write date so
+ * an identical resubmission can be rejected before filing a request (or
+ * rewriting a row).
+ */
+export function sameAvailability(
+  current: AvailabilityComparable | null | undefined,
+  next: AvailabilityComparable,
+): boolean {
+  if (!current) return false
+  return availabilitySignature(current) === availabilitySignature(next)
+}
+
+export interface RequestPayloadWithDates {
+  writeDates?: string[] | null
+  removeDates?: string[] | null
+}
+
+export interface TrimRequestResult<T extends RequestPayloadWithDates> {
+  /** Every target was covered, so the older request should be retired. */
+  superseded: boolean
+  /** The trimmed payload (dates replaced), or null when superseded. */
+  payload: (T & { writeDates: string[]; removeDates: string[] }) | null
+  /** True when dates were removed, so the caller should persist the payload. */
+  changed: boolean
+}
+
+/**
+ * Trim an older pending request's target dates so the dates a newer request
+ * now covers are removed from it while the rest of its plan is kept.
+ *
+ * - every target covered (or no dates at all) → superseded;
+ * - partial overlap → a smaller `writeDates` / `removeDates` set;
+ * - no overlap → returned untouched.
+ *
+ * Anchor, scope, seriesId and action are preserved so the trimmed request still
+ * applies exactly what is left.
+ */
+export function trimRequestTargets<T extends RequestPayloadWithDates>(
+  payload: T | null | undefined,
+  coveredDates: string[],
+): TrimRequestResult<T> {
+  const covered = new Set(coveredDates.filter(Boolean))
+  const writeDates = (payload?.writeDates ?? []).filter(Boolean)
+  const removeDates = (payload?.removeDates ?? []).filter(Boolean)
+  if (writeDates.length === 0 && removeDates.length === 0) {
+    return { superseded: true, payload: null, changed: true }
+  }
+  const keptWrite = writeDates.filter((d) => !covered.has(d))
+  const keptRemove = removeDates.filter((d) => !covered.has(d))
+  if (keptWrite.length === 0 && keptRemove.length === 0) {
+    return { superseded: true, payload: null, changed: true }
+  }
+  const changed = keptWrite.length !== writeDates.length || keptRemove.length !== removeDates.length
+  if (!changed) {
+    return { superseded: false, changed: false, payload: payload ? { ...payload, writeDates, removeDates } : null }
+  }
+  return { superseded: false, changed: true, payload: { ...(payload as T), writeDates: keptWrite, removeDates: keptRemove } }
+}
+
 /**
  * The identity of the change a request makes: two requests with the same key
  * are snapshots of the same fix. A series request is keyed by series + action,

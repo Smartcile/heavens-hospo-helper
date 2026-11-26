@@ -69,6 +69,16 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
+  it('shows the weekday in the declaration header', async () => {
+    mockFetch()
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    expect(await screen.findByText(formatDateDayDMY(monday))).toBeDefined()
+  })
+
   it('applies a worker edit request from the person modal', async () => {
     const spy = mockFetch()
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)

@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { WorkerAvailabilityClient } from '@/components/worker/WorkerAvailabilityClient'
-import { localDayKey, parseDay } from '@/lib/date-nav'
+import { localDayKey, parseDay, shiftDay } from '@/lib/date-nav'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
 
 const todayKey = localDayKey()
@@ -440,5 +440,37 @@ describe('WorkerAvailabilityClient', () => {
     render(<WorkerAvailabilityClient />)
     await screen.findByText('MY AVAILABILITY')
     expect(screen.queryByTitle('DRAG TO COPY THIS DAY')).toBeNull()
+  })
+
+  it('flashes NOTHING CHANGED when the server reports an unchanged save', async () => {
+    useMonthView()
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ mode: 'UNCHANGED', skipped: [] }) } as Response
+      return { ok: true, status: 200, json: async () => payload } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+    fireEvent.click(screen.getByRole('button', { name: /^SAVE/ }))
+
+    expect(await screen.findByText(/NOTHING CHANGED — YOUR AVAILABILITY STAYS AS IT IS/)).toBeDefined()
+  })
+
+  it('lights the REQ badge on every day a request targets', async () => {
+    useMonthView()
+    const tomorrow = shiftDay(todayKey, 1)
+    const withTargets = {
+      ...payload,
+      // The request is anchored on another day but targets today.
+      requests: [{ id: 'r1', date: tomorrow, scope: 'FROM', action: 'SET', seriesId: 's1', targetDates: [todayKey, tomorrow] }],
+    }
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => withTargets } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    // Both target dates show the badge — not only the request's anchor.
+    expect(screen.getAllByText('REQ')).toHaveLength(2)
   })
 })
