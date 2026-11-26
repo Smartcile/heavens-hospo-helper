@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { prisma, getWorkerSession } = vi.hoisted(() => ({
-  prisma: { tipsPeriod: { findMany: vi.fn() } },
+  prisma: {
+    tipsPeriod: { findMany: vi.fn() },
+    tipsShareNote: { findMany: vi.fn() },
+  },
   getWorkerSession: vi.fn(),
 }))
 
@@ -78,5 +81,33 @@ describe('GET /api/worker/tips', () => {
     expect(text).not.toContain('amount')
     expect(text).not.toContain('poolTotal')
     expect(text).not.toContain('posTotal')
+  })
+
+  it('omits notes by default and attaches the thread only with ?notes=1', async () => {
+    const plain = await (await GET(req())).json()
+    expect(plain.periods[0].shares[0].notes).toBeUndefined()
+    expect(prisma.tipsShareNote.findMany).not.toHaveBeenCalled()
+
+    prisma.tipsShareNote.findMany.mockResolvedValue([
+      {
+        id: 'n1',
+        body: 'CHECKED IN CASH',
+        source: 'MANAGER',
+        createdAt: new Date('2026-11-12T03:00:00.000Z'),
+        tipsShareId: 'r1',
+      },
+    ])
+
+    const body = await (await GET(req('http://localhost/api/worker/tips?notes=1'))).json()
+    expect(prisma.tipsShareNote.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tipsShareId: { in: ['r1'] }, deletedAt: null }),
+      }),
+    )
+    expect(body.periods[0].shares[0].notes[0]).toMatchObject({
+      id: 'n1',
+      body: 'CHECKED IN CASH',
+      createdAt: '2026-11-12T03:00:00.000Z',
+    })
   })
 })

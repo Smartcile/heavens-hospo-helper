@@ -7,6 +7,14 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
 
+vi.mock('@/components/ui/MultiImagePicker', () => ({
+  MultiImagePicker: ({ value, onChange }: { value: string[]; onChange: (urls: string[]) => void }) => (
+    <button type="button" onClick={() => onChange([...(value ?? []), '/api/upload/photo.jpg'])}>
+      ADD PHOTO
+    </button>
+  ),
+}))
+
 import { WorkerTasksClient } from '@/components/worker/WorkerTasksClient'
 import type { WorkerTaskAccess } from '@/lib/worker-task-access'
 
@@ -69,12 +77,12 @@ function json(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response
 }
 
-function mockTasks(tasks: unknown[], checklists: unknown[] = []) {
+function mockTasks(tasks: unknown[], checklists: unknown[] = [], staffId = '') {
   const fetchMock = vi.mocked(global.fetch)
   fetchMock.mockImplementation(async (url: string | URL | Request) => {
     const u = String(url)
     if (u === '/api/worker/tasks') {
-      return json({ tasks, checklists, firstName: 'BAR' })
+      return json({ tasks, checklists, firstName: 'BAR', staffId })
     }
     return json({})
   })
@@ -1008,5 +1016,110 @@ describe('WorkerTasksClient', () => {
       unmount()
       delete (globalThis as unknown as { EventSource?: unknown }).EventSource
     }
+  })
+
+  it('renders a CUSTOM TASKS pseudo-list with FOR name and never duplicates a list task (#145)', async () => {
+    const customTask = {
+      ...BASE_TASK,
+      id: 't20',
+      title: 'RESEARCH HIGH CHAIRS',
+      departmentName: 'MANAGER',
+      assigneeName: 'SAM LEE',
+      isOneOff: true,
+    }
+    const listTask = {
+      ...BASE_TASK,
+      id: 't21',
+      title: 'WIPE TABLES',
+      isOneOff: true,
+    }
+    mockTasks(
+      [customTask, listTask],
+      [{ id: 'c1', name: 'OPENING', appearFromTime: null, activatedToday: false, taskIds: ['t21'] }],
+    )
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('CUSTOM TASKS')).toBeDefined())
+    expect(screen.getByText('RESEARCH HIGH CHAIRS')).toBeDefined()
+    expect(screen.getByText('FOR SAM LEE')).toBeDefined()
+    // The custom card carries the ONE-OFF tag.
+    expect(screen.getAllByText('ONE-OFF')).toHaveLength(1)
+    // The checklist task stays in OPENING and is never duplicated in CUSTOM.
+    expect(screen.getByText('OPENING')).toBeDefined()
+    expect(screen.getAllByText('WIPE TABLES')).toHaveLength(1)
+  })
+
+  it('puts an assigned-but-not-one-off cross-department task in CUSTOM TASKS (#145)', async () => {
+    const assigned = {
+      ...BASE_TASK,
+      id: 't30',
+      title: 'ORDER MORE GLASSES',
+      departmentName: 'OTHER DEPT',
+      assignedToStaffId: 's1',
+      assigneeName: 'SAM LEE',
+      isOneOff: false,
+    }
+    mockTasks([assigned], [], 's1')
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('CUSTOM TASKS')).toBeDefined())
+    // Rendered in the custom bucket exactly once, not also under its department.
+    expect(screen.getAllByText('ORDER MORE GLASSES')).toHaveLength(1)
+    expect(screen.getByText('FOR SAM LEE')).toBeDefined()
+    expect(screen.getByText('CUSTOM')).toBeDefined()
+  })
+
+  it('posts a thread comment with a photo from the worker task modal (#145 Wave B)', async () => {
+    const threadTask = {
+      ...BASE_TASK,
+      id: 't40',
+      title: 'RESEARCH HIGH CHAIRS',
+      departmentName: 'MANAGER',
+      assignedToStaffId: 's1',
+      assigneeName: 'ANN B',
+      isThread: true,
+      threadClosedAt: null,
+    }
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        return json({ tasks: [threadTask], checklists: [], firstName: 'ANN', staffId: 's1' })
+      }
+      if (u === '/api/worker/tasks/t40/comments' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        return json({
+          comment: {
+            id: 'c1', body: body.body, imageUrls: body.imageUrls, authorId: 's1',
+            authorName: 'ANN B', createdAt: '2026-11-25T11:00:00.000Z', canDelete: true,
+          },
+        })
+      }
+      if (u === '/api/worker/tasks/t40/comments') {
+        return json({ comments: [], canAdd: true, canDeleteAny: false, canSignOff: true, threadClosedAt: null })
+      }
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('RESEARCH HIGH CHAIRS')).toBeDefined())
+    fireEvent.click(screen.getByText('RESEARCH HIGH CHAIRS'))
+
+    await waitFor(() => expect(screen.getByText('TASK THREAD')).toBeDefined())
+    fireEvent.change(screen.getByPlaceholderText('ADD A COMMENT…'), { target: { value: 'WORKER REPLY' } })
+    fireEvent.click(screen.getByText('ADD PHOTO'))
+    fireEvent.click(screen.getByText('POST COMMENT'))
+
+    await waitFor(() => expect(screen.getByText('WORKER REPLY')).toBeDefined())
+    const post = vi.mocked(global.fetch).mock.calls.find(
+      ([u, init]) => String(u) === '/api/worker/tasks/t40/comments' && init?.method === 'POST',
+    )
+    expect(post).toBeDefined()
+    expect(JSON.parse(String(post![1]!.body))).toEqual({
+      body: 'WORKER REPLY',
+      imageUrls: ['/api/upload/photo.jpg'],
+    })
   })
 })

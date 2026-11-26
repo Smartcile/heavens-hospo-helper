@@ -35,6 +35,7 @@ const PERIOD = {
       hoursShare: 1,
       suggestedWeight: 1,
       suggestedAmount: 100,
+      departmentName: 'FOH',
     },
     {
       id: 'r2',
@@ -48,6 +49,7 @@ const PERIOD = {
       hoursShare: 1,
       suggestedWeight: 1,
       suggestedAmount: 100,
+      departmentName: 'KITCHEN',
     },
   ],
 }
@@ -108,10 +110,50 @@ describe('WorkerTipsClient', () => {
     expect(screen.queryByText('MARK ISSUED')).toBeNull()
   })
 
+  it('shows each person\u2019s department on the issuance desk', async () => {
+    globalThis.fetch = vi.fn(() => json({ periods: [PERIOD] })) as unknown as typeof fetch
+
+    render(<WorkerTipsClient />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+    expect(screen.getByText(/FOH/)).toBeTruthy()
+    expect(screen.getByText(/KITCHEN/)).toBeTruthy()
+  })
+
   it('shows access denied when the route refuses floor staff', async () => {
     globalThis.fetch = vi.fn(() => json({ error: 'ACCESS DENIED' }, false, 403)) as unknown as typeof fetch
 
     render(<WorkerTipsClient />)
     await waitFor(() => expect(screen.getByText('ACCESS DENIED — MANAGERS ONLY')).toBeTruthy())
+  })
+
+  it('shows per-person notes only after SHOW NOTES is toggled', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url) === '/api/worker/tips?notes=1') {
+        return json({
+          periods: [
+            {
+              ...PERIOD,
+              shares: PERIOD.shares.map((s) => ({
+                ...s,
+                notes: [{ id: `n-${s.id}`, body: `${s.name} NOTE`, createdAt: '2026-11-12T03:00:00.000Z' }],
+              })),
+            },
+          ],
+        })
+      }
+      if (String(url) === '/api/worker/tips') return json({ periods: [PERIOD] })
+      return json({})
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    render(<WorkerTipsClient />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/worker/tips?notes=1')).toBe(false)
+    expect(screen.queryByText('LIAM SMITH NOTE')).toBeNull()
+
+    fireEvent.click(screen.getByText('SHOW NOTES'))
+
+    await waitFor(() => expect(screen.getByText('LIAM SMITH NOTE')).toBeTruthy())
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/worker/tips?notes=1')).toBe(true)
   })
 })

@@ -13,7 +13,9 @@ import { useDirty } from '@/lib/use-dirty'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks } from '@/lib/task-subtasks'
+import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
 import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
+import { TaskThread } from '@/components/tasks/TaskThread'
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
@@ -30,6 +32,9 @@ interface TaskData {
   parentTaskId?: string | null; parentTitle?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   linkedItemId?: string | null; linkedItem?: LinkedItemView | null
+  isThread?: boolean
+  threadClosedAt?: string | null
+  threadClosedById?: string | null
   requiredTraining: { moduleId: string }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
@@ -134,6 +139,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
         allowedOutcomes: task.allowedOutcomes,
         overrideOutcomes: !!task.overrideOutcomes,
         requireOutcomeReason: !!task.requireOutcomeReason,
+        isThread: !!task.isThread,
         requireRetrain, changeSummary,
       }),
     })
@@ -172,10 +178,11 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   }
 
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const parentSelectOptions = task
+  const parentSelectGroups = task
     ? [
-        { value: '', label: 'NONE (TOP-LEVEL TASK)' },
-        ...availableParentTasks(allTasks, { venueId: task.venueId, taskId: task.id }).map((t) => ({ value: t.id, label: t.title })),
+        { label: 'TOP LEVEL', options: [{ value: '', label: 'NONE (TOP-LEVEL TASK)' }] },
+        ...groupTasksBySection(availableParentTasks(allTasks, { venueId: task.venueId, taskId: task.id }))
+          .map((g) => ({ label: g.label, options: g.tasks.map((t) => ({ value: t.id, label: t.title })) })),
       ]
     : []
   const deptOptions = task
@@ -221,14 +228,18 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
           <Select label="Section (optional)" value={task.sectionId ?? ''} onChange={(e) => patch({ sectionId: e.target.value })} options={sectionOptions} />
 
           <div className="space-y-2">
-            <Select
-              data-testid="task-parent-select"
-              label="Parent task (optional)"
-              value={task.parentTaskId ?? ''}
-              onChange={(e) => patch({ parentTaskId: e.target.value })}
-              options={parentSelectOptions}
-              disabled={(task.subtasks?.length ?? 0) > 0}
-            />
+            <div className="space-y-1" data-testid="task-parent-select">
+              <label htmlFor="task-edit-parent-task-input" className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
+              <SearchSelect
+                id="task-edit-parent-task-input"
+                groups={parentSelectGroups}
+                value={task.parentTaskId ?? ''}
+                onChange={(v) => patch({ parentTaskId: v })}
+                placeholder="NONE (TOP-LEVEL TASK)"
+                disabled={(task.subtasks?.length ?? 0) > 0}
+                emptyLabel="NO OTHER TASKS IN THIS VENUE"
+              />
+            </div>
             <p className="font-mono text-xs uppercase text-grey-light">
               LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
             </p>
@@ -251,18 +262,24 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
                   <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
                 ) : (
                   <div className="space-y-1">
-                    {task.subtasks!.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
-                        <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveId(s.id)}
-                          className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
-                        >
-                          EDIT
-                        </button>
-                      </div>
-                    ))}
+                    {task.subtasks!.map((s) => {
+                      const sub = allTasks.find((t) => t.id === s.id)
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                          <span className="font-mono text-xs uppercase text-white truncate">
+                            {sub && <span className="whitespace-nowrap text-grey-light" title={taskSectionTitle(sub)}>{taskSectionPrefix(sub)} </span>}
+                            {s.title}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setActiveId(s.id)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                          >
+                            EDIT
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -293,6 +310,25 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
             override={!!task.overrideOutcomes}
             onOverrideChange={(v) => patch({ overrideOutcomes: v })}
           />
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!task.isThread}
+              onChange={(e) => patch({ isThread: e.target.checked })}
+              className="w-4 h-4 accent-white"
+            />
+            <span className="font-mono text-xs uppercase text-white">Thread — comments + sign-off</span>
+          </label>
+
+          {task.isThread && (
+            <TaskThread
+              taskId={task.id}
+              basePath="/api/admin/tasks"
+              uploadEndpoint="/api/admin/upload"
+              initialClosed={!!task.threadClosedAt}
+            />
+          )}
 
           {task.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">

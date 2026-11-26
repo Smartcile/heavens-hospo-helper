@@ -160,3 +160,44 @@ describe('buildTipsPeriodPayload', () => {
     expect(payload.progress).toMatchObject({ stage: 'FULLY_ISSUED', complete: true, percent: 100 })
   })
 })
+
+describe('buildTipsPeriodPayload note counts', () => {
+  const base = {
+    id: 'p1',
+    venueId: 'v1',
+    label: 'FEB',
+    fromDate: new Date('2026-02-01T00:00:00.000Z'),
+    toDate: new Date('2026-02-28T00:00:00.000Z'),
+    cashCounts: {},
+    posTotal: 100,
+    notes: null,
+    fullyIssuedAt: null,
+    createdAt: new Date('2026-02-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    deletedAt: null,
+  }
+  const share = {
+    id: 'r1',
+    staffId: 's1',
+    name: 'A',
+    hours: 1,
+    shareWeight: 1,
+    sortOrder: 0,
+    status: 'PLANNED' as const,
+    approvalNote: null,
+    issueNote: null,
+    approvedAt: null,
+    issuedAt: null,
+    deletedAt: null,
+  }
+
+  it('passes a live note count through when the read included _count', () => {
+    const payload = buildTipsPeriodPayload({ ...base, shares: [{ ...share, _count: { notes: 2 } }] })
+    expect(payload.shares[0].noteCount).toBe(2)
+  })
+
+  it('omits noteCount entirely when the read did not ask for it', () => {
+    const payload = buildTipsPeriodPayload({ ...base, shares: [share] })
+    expect(payload.shares[0].noteCount).toBeUndefined()
+  })
+})

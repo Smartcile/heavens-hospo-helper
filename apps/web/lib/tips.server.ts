@@ -23,6 +23,10 @@ interface StoredTipsShare {
   approvedAt: Date | null
   issuedAt: Date | null
   deletedAt: Date | null
+  /** Present only when the caller asked for the live note count. */
+  _count?: { notes: number }
+  /** Present only when the caller joined the staff member's department. */
+  staff?: { department: { name: string } | null } | null
 }
 
 interface StoredTipsPeriod {
@@ -48,7 +52,7 @@ export interface TipsPeriodPayload extends Omit<StoredTipsPeriod, 'shares'> {
 }
 
 function rowFromStored(share: StoredTipsShare): TipsShareRow {
-  return {
+  const row: TipsShareRow = {
     id: share.id,
     staffId: share.staffId,
     name: share.name,
@@ -60,7 +64,12 @@ function rowFromStored(share: StoredTipsShare): TipsShareRow {
     issueNote: share.issueNote,
     approvedAt: share.approvedAt,
     issuedAt: share.issuedAt,
+    departmentName: share.staff?.department?.name ?? null,
   }
+  // The payload only carries a live note count when the read included
+  // `_count.notes`; a caller that did not ask for it sees no change.
+  if (share._count) row.noteCount = share._count.notes
+  return row
 }
 
 /** The accrued pool = counted cash + the EFTPOS/POS holding figure. */

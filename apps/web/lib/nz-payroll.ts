@@ -181,7 +181,9 @@ export interface PayrunBreakdownLine {
   clockIn: string
   clockOut: string
   hours: number // paid hours (incl. paid breaks, excl. unpaid)
-  breaksMinutes: number
+  breaksMinutes: number // total clocked break minutes (kept for pre-split rows)
+  paidBreakMinutes: number // rest breaks — still in `hours`
+  unpaidBreakMinutes: number // meal + surplus — deducted from `hours`
   type: 'ORDINARY' | 'OVERTIME' | 'PUBLIC_HOLIDAY'
   rate: number // the effective hourly rate applied to this session
 }
@@ -191,6 +193,10 @@ export interface PayrunResult {
   ordinaryHours: number
   overtimeHours: number
   publicHolidayHours: number
+  /** Rest-break minutes across the period (paid). */
+  paidBreakMinutes: number
+  /** Meal-break + surplus minutes across the period (unpaid). */
+  unpaidBreakMinutes: number
   /** Hours-weighted average of the session rates actually used. */
   averageRate: number
   grossPay: number // ordinary + OT + PH (PH at 1.5x), min-wage floored
@@ -209,6 +215,24 @@ export interface PayrunResult {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Sum the paid/unpaid break minutes carried on a stored breakdown (or any
+ * JSON that may predate the split). Rows without the split keys contribute
+ * nothing, so old `PayrollEntry.breakdown` values still read cleanly.
+ */
+export function sumBreakSplit(breakdown: unknown): { paidMinutes: number; unpaidMinutes: number } {
+  if (!Array.isArray(breakdown)) return { paidMinutes: 0, unpaidMinutes: 0 }
+  let paidMinutes = 0
+  let unpaidMinutes = 0
+  for (const line of breakdown) {
+    if (!line || typeof line !== 'object') continue
+    const l = line as { paidBreakMinutes?: unknown; unpaidBreakMinutes?: unknown }
+    if (typeof l.paidBreakMinutes === 'number' && Number.isFinite(l.paidBreakMinutes)) paidMinutes += l.paidBreakMinutes
+    if (typeof l.unpaidBreakMinutes === 'number' && Number.isFinite(l.unpaidBreakMinutes)) unpaidMinutes += l.unpaidBreakMinutes
+  }
+  return { paidMinutes, unpaidMinutes }
+}
 
 /**
  * The whole per-staff payrun for one period. Sessions must already be
@@ -236,7 +260,18 @@ export function payrunForStaff(
 
   // Pass 1: parse sessions, split minutes into ordinary / public-holiday pools.
   // Each session carries its own effective rate (role-based), min-wage floored.
-  const parsed: { dateKey: string; clockIn: string; clockOut: string; paidMinutes: number; breaksMinutes: number; isPH: boolean; rate: number; ot?: boolean }[] = []
+  const parsed: {
+    dateKey: string
+    clockIn: string
+    clockOut: string
+    paidMinutes: number
+    breaksMinutes: number
+    paidBreakMinutes: number
+    unpaidBreakMinutes: number
+    isPH: boolean
+    rate: number
+    ot?: boolean
+  }[] = []
   const phDays = new Set<string>()
   for (const s of sessions) {
     const start = new Date(s.clockIn).getTime()
@@ -244,7 +279,11 @@ export function payrunForStaff(
     if (!(end > start)) continue
     const totalMinutes = (end - start) / 60000
     const breaks = Math.min(s.breaksMinutes || 0, totalMinutes)
-    const paidMinutes = totalMinutes - breaks // unpaid (meal) minutes already excluded
+    // NZ rule (lib/breaks.ts): rest breaks are paid, meal breaks (and any
+    // surplus beyond the entitlement) come off paid time. Classify against the
+    // attended span — the same rule the Clocks page displays.
+    const cls = classifyBreakMinutes(breaks, totalMinutes)
+    const paidMinutes = totalMinutes - cls.unpaidMinutes
     const isPH = publicHolidayDateKeys.has(s.dateKey)
     const sessionRate = Math.max(s.rate ?? baseRate ?? 0, settings.minimumWage)
 
@@ -257,7 +296,17 @@ export function payrunForStaff(
     } else {
       ordinaryMinutes += paidMinutes
     }
-    parsed.push({ dateKey: s.dateKey, clockIn: s.clockIn, clockOut: s.clockOut, paidMinutes, breaksMinutes: s.breaksMinutes || 0, isPH, rate: sessionRate })
+    parsed.push({
+      dateKey: s.dateKey,
+      clockIn: s.clockIn,
+      clockOut: s.clockOut,
+      paidMinutes,
+      breaksMinutes: s.breaksMinutes || 0,
+      paidBreakMinutes: cls.paidMinutes,
+      unpaidBreakMinutes: cls.unpaidMinutes,
+      isPH,
+      rate: sessionRate,
+    })
   }
 
   // Pass 2: contractual overtime over the weekly threshold (non-PH only).
@@ -275,9 +324,23 @@ export function payrunForStaff(
     const carve = Math.min(p.paidMinutes, otRemaining)
     p.paidMinutes -= carve
     otRemaining -= carve
-    // The carved-off copy is the overtime; the original stays ordinary (setting
-    // p.ot here too would mislabel the remaining ordinary minutes as OT).
-    parsed.push({ ...p, paidMinutes: carve, isPH: false, ot: true })
+    // A break is not overtime: the split stays on the ordinary remainder line
+    // and the carved copy carries none. When the whole session moved to
+    // overtime there is no remainder line left, so the split follows the only
+    // surviving line — otherwise it would silently disappear from the totals.
+    const fullyCarved = p.paidMinutes <= 0
+    parsed.push({
+      ...p,
+      paidMinutes: carve,
+      isPH: false,
+      ot: true,
+      paidBreakMinutes: fullyCarved ? p.paidBreakMinutes : 0,
+      unpaidBreakMinutes: fullyCarved ? p.unpaidBreakMinutes : 0,
+    })
+    if (fullyCarved) {
+      p.paidBreakMinutes = 0
+      p.unpaidBreakMinutes = 0
+    }
   }
   for (const p of parsed) {
     if (p.paidMinutes <= 0) continue
@@ -287,10 +350,16 @@ export function payrunForStaff(
       clockOut: p.clockOut,
       hours: round2(p.paidMinutes / 60),
       breaksMinutes: p.breaksMinutes,
+      paidBreakMinutes: p.paidBreakMinutes,
+      unpaidBreakMinutes: p.unpaidBreakMinutes,
       type: p.isPH ? 'PUBLIC_HOLIDAY' : p.ot ? 'OVERTIME' : 'ORDINARY',
       rate: p.rate,
     })
   }
+
+  // Totals come from the lines themselves so the pay period can never
+  // double-count a break across the OT carve.
+  const breakSplit = sumBreakSplit(breakdown)
 
   const ordinaryHours = round2(ordinaryMinutes / 60)
   const overtimeHours = round2(otMinutes / 60)
@@ -343,6 +412,8 @@ export function payrunForStaff(
     ordinaryHours,
     overtimeHours,
     publicHolidayHours,
+    paidBreakMinutes: breakSplit.paidMinutes,
+    unpaidBreakMinutes: breakSplit.unpaidMinutes,
     averageRate,
     grossPay,
     holidayPay,

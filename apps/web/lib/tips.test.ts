@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
+  DEFAULT_TIPS_COLUMN_ORDER,
+  TIPS_COLUMNS,
   canTransitionTipsShare,
   cashRound,
   cashTotalOf,
@@ -13,15 +15,21 @@ import {
   isTipsPeriodLocked,
   isTipsShareEditable,
   matchLegacyTipStaff,
+  mergeTipsStaff,
+  moveTipsColumn,
+  parseTipsColumnOrder,
   round2,
   shareLabel,
+  sortTipsShares,
   suggestedAmount,
   suggestedWeight,
   summariseTips,
+  tipsColumnOrderStorageKey,
   tipsProgress,
   totalTips,
   valueTipsShares,
   type TipsShareRow,
+  type TipsStaffOption,
 } from '@/lib/tips'
 
 const workbookShares = [
@@ -258,5 +266,131 @@ describe('relational tip shares', () => {
     expect(matchLegacyTipStaff('Liam Smith', staff)).toBe('s1')
     expect(matchLegacyTipStaff('LIAM', staff)).toBeNull()
     expect(matchLegacyTipStaff('NOBODY', staff)).toBeNull()
+  })
+})
+
+describe('tips breakdown columns + bulk staff', () => {
+  const staff: TipsStaffOption[] = [
+    { id: 's1', name: 'LIAM SMITH', departmentName: 'FOH' },
+    { id: 's2', name: 'SHAYLA JONES', departmentName: 'FOH' },
+    { id: 's3', name: 'RUI CHEN', departmentName: 'KITCHEN' },
+  ]
+
+  const row = (over: Partial<TipsShareRow> = {}): TipsShareRow => ({
+    staffId: null,
+    name: 'A',
+    hours: 0,
+    shareWeight: 1,
+    sortOrder: 0,
+    status: 'PLANNED',
+    ...over,
+  })
+
+  it('parses a saved column order, drops junk and appends a newly added column', () => {
+    expect(parseTipsColumnOrder(null)).toEqual(DEFAULT_TIPS_COLUMN_ORDER)
+    expect(parseTipsColumnOrder('not json')).toEqual(DEFAULT_TIPS_COLUMN_ORDER)
+    expect(parseTipsColumnOrder(JSON.stringify(['AMOUNT', 'NAME', 'NOPE', 'NAME']))).toEqual([
+      'AMOUNT',
+      'NAME',
+      ...DEFAULT_TIPS_COLUMN_ORDER.filter((key) => key !== 'AMOUNT' && key !== 'NAME'),
+    ])
+    // A column saved before ACTIONS existed is still shown.
+    expect(parseTipsColumnOrder(JSON.stringify(['NAME', 'HOURS']))).toContain('ACTIONS')
+  })
+
+  it('moves a dragged column into the target position', () => {
+    expect(moveTipsColumn(DEFAULT_TIPS_COLUMN_ORDER, 'AMOUNT', 'HOURS')).toEqual([
+      'NAME',
+      'DEPARTMENT',
+      'AMOUNT',
+      'HOURS',
+      'WEIGHT',
+      'HOURS_PCT',
+      'SUGGESTED',
+      'STATUS',
+      'ACTIONS',
+    ])
+    expect(moveTipsColumn(DEFAULT_TIPS_COLUMN_ORDER, 'NAME', 'NAME')).toEqual(DEFAULT_TIPS_COLUMN_ORDER)
+  })
+
+  it('keys the saved order per venue', () => {
+    expect(tipsColumnOrderStorageKey('v1')).toBe('hospo-tips-columns:v1')
+  })
+
+  it('includes a sortable DEPARTMENT column right after NAME', () => {
+    const department = TIPS_COLUMNS.find((c) => c.key === 'DEPARTMENT')
+    expect(department).toBeDefined()
+    expect(department?.sortable).toBe(true)
+    expect(DEFAULT_TIPS_COLUMN_ORDER).toEqual([
+      'NAME',
+      'DEPARTMENT',
+      'HOURS',
+      'WEIGHT',
+      'HOURS_PCT',
+      'SUGGESTED',
+      'AMOUNT',
+      'STATUS',
+      'ACTIONS',
+    ])
+  })
+
+  it('keeps a saved column order and appends the DEPARTMENT column when missing', () => {
+    expect(parseTipsColumnOrder(JSON.stringify(['AMOUNT', 'NAME']))).toEqual([
+      'AMOUNT',
+      'NAME',
+      'DEPARTMENT',
+      'HOURS',
+      'WEIGHT',
+      'HOURS_PCT',
+      'SUGGESTED',
+      'STATUS',
+      'ACTIONS',
+    ])
+  })
+
+  it('sorts by department with people who have no department last', () => {
+    const rows = [
+      row({ name: 'A', departmentName: null }),
+      row({ name: 'B', departmentName: 'KITCHEN' }),
+      row({ name: 'C', departmentName: 'FOH' }),
+      row({ name: 'D', departmentName: 'FOH' }),
+    ]
+    expect(sortTipsShares(rows, { key: 'department', dir: 'asc' }).map((r) => r.name)).toEqual([
+      'C',
+      'D',
+      'B',
+      'A',
+    ])
+    // A missing department stays last even in descending order.
+    expect(sortTipsShares(rows, { key: 'department', dir: 'desc' }).map((r) => r.name)).toEqual([
+      'B',
+      'C',
+      'D',
+      'A',
+    ])
+  })
+
+  it('sorts by name / hours / weight, directionally and stably', () => {
+    const rows = [
+      row({ name: 'B', hours: 2, shareWeight: 1 }),
+      row({ name: 'A', hours: 5, shareWeight: 1 }),
+      row({ name: 'C', hours: 5, shareWeight: 0.5 }),
+    ]
+    expect(sortTipsShares(rows, null).map((r) => r.name)).toEqual(['B', 'A', 'C'])
+    expect(sortTipsShares(rows, { key: 'name', dir: 'asc' }).map((r) => r.name)).toEqual(['A', 'B', 'C'])
+    expect(sortTipsShares(rows, { key: 'hours', dir: 'desc' }).map((r) => r.name)).toEqual(['A', 'C', 'B'])
+    expect(sortTipsShares(rows, { key: 'weight', dir: 'desc' }).map((r) => r.name)).toEqual(['B', 'A', 'C'])
+    // Ties keep their existing order.
+    expect(sortTipsShares(rows, { key: 'hours', dir: 'asc' }).map((r) => r.name)).toEqual(['B', 'A', 'C'])
+  })
+
+  it('merges a bulk selection without duplicating anyone already on the period', () => {
+    const existing = [row({ staffId: 's1', name: 'LIAM SMITH', sortOrder: 0 })]
+    const result = mergeTipsStaff(existing, staff)
+    expect(result.added).toBe(2)
+    expect(result.shares.map((s) => s.staffId)).toEqual(['s1', 's2', 's3'])
+    expect(result.shares[1]).toMatchObject({ name: 'SHAYLA JONES', hours: 0, shareWeight: 1, sortOrder: 1 })
+    // A second merge is a no-op.
+    expect(mergeTipsStaff(result.shares, staff).added).toBe(0)
   })
 })

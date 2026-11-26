@@ -1,6 +1,6 @@
-# Optional local pre-flight. GitHub Actions is the gate: the `CI` workflow runs
-# lint, type-check, the full test suite and the Next.js build on every PR.
-# Use this only for a fast local check.
+# The local gate. GitHub does not run CI on pull requests, so this is what
+# verifies a branch: lint, type-check, the full test suite and (with -Build)
+# the Next.js build.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1 -Build

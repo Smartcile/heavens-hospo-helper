@@ -56,7 +56,20 @@ export interface TipsShareRow extends TipsShareDraft {
   issueNote?: string | null
   approvedAt?: string | Date | null
   issuedAt?: string | Date | null
+  /** The linked staff member's department name (blank for a manual person). */
+  departmentName?: string | null
+  /** Number of live notes on this person's period thread (0 when not loaded). */
+  noteCount?: number
 }
+
+/** A staff member offered by the bulk-add modal. */
+export interface TipsStaffOption {
+  id: string
+  name: string
+  departmentName?: string | null
+}
+
+export const TIPS_NOTE_MAX_LENGTH = 500
 
 export interface TipsShareValue extends TipsShareRow {
   /** This person's share of the total hours (0–1). Advisory only. */
@@ -372,3 +385,173 @@ export function cleanShares(raw: unknown): TipsShareInput[] {
   }
   return out
 }
+
+// --- Breakdown table: columns, sorting and bulk add --------------------------
+
+export type TipsColumnKey =
+  | 'NAME'
+  | 'DEPARTMENT'
+  | 'HOURS'
+  | 'WEIGHT'
+  | 'HOURS_PCT'
+  | 'SUGGESTED'
+  | 'AMOUNT'
+  | 'STATUS'
+  | 'ACTIONS'
+
+export interface TipsColumnDef {
+  key: TipsColumnKey
+  label: string
+  /** Right-align the header and cells. */
+  numeric: boolean
+  /** Exposes a click-to-sort toggle. */
+  sortable: boolean
+}
+
+export const TIPS_COLUMNS: TipsColumnDef[] = [
+  { key: 'NAME', label: 'NAME', numeric: false, sortable: true },
+  { key: 'DEPARTMENT', label: 'DEPARTMENT', numeric: false, sortable: true },
+  { key: 'HOURS', label: 'HOURS', numeric: true, sortable: true },
+  { key: 'WEIGHT', label: 'WEIGHT', numeric: true, sortable: true },
+  { key: 'HOURS_PCT', label: 'HOURS %', numeric: true, sortable: false },
+  { key: 'SUGGESTED', label: 'SUGGESTED', numeric: true, sortable: false },
+  { key: 'AMOUNT', label: 'AMOUNT', numeric: true, sortable: false },
+  { key: 'STATUS', label: 'STATUS', numeric: false, sortable: false },
+  { key: 'ACTIONS', label: 'ACTIONS', numeric: false, sortable: false },
+]
+
+export const DEFAULT_TIPS_COLUMN_ORDER: TipsColumnKey[] = TIPS_COLUMNS.map((c) => c.key)
+
+/** localStorage key for one venue's saved column order. */
+export function tipsColumnOrderStorageKey(venueId: string): string {
+  return `hospo-tips-columns:${venueId}`
+}
+
+/**
+ * Read a saved column order. Unknown/duplicate keys are dropped and any column
+ * added since the order was saved is appended in its default position, so a new
+ * column can never be hidden by stale preferences.
+ */
+export function parseTipsColumnOrder(raw: string | null | undefined): TipsColumnKey[] {
+  const known = new Set(DEFAULT_TIPS_COLUMN_ORDER)
+  let saved: unknown = null
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      saved = JSON.parse(raw)
+    } catch {
+      saved = null
+    }
+  }
+  const order: TipsColumnKey[] = []
+  if (Array.isArray(saved)) {
+    for (const value of saved) {
+      if (typeof value !== 'string') continue
+      const key = value.toUpperCase() as TipsColumnKey
+      if (!known.has(key) || order.includes(key)) continue
+      order.push(key)
+    }
+  }
+  for (const key of DEFAULT_TIPS_COLUMN_ORDER) {
+    if (!order.includes(key)) order.push(key)
+  }
+  return order
+}
+
+/** Move one column so it sits where `target` currently is. */
+export function moveTipsColumn(
+  order: readonly TipsColumnKey[],
+  from: TipsColumnKey,
+  target: TipsColumnKey,
+): TipsColumnKey[] {
+  const base = parseTipsColumnOrder(JSON.stringify(order))
+  const fromIndex = base.indexOf(from)
+  const targetIndex = base.indexOf(target)
+  if (fromIndex === -1 || targetIndex === -1 || fromIndex === targetIndex) return base
+  const next = [...base]
+  next.splice(fromIndex, 1)
+  // Dropping onto a column inserts BEFORE it; dropping right to left needs no
+  // shift because removing `from` does not move the target.
+  const insertAt = fromIndex < targetIndex ? targetIndex - 1 : targetIndex
+  next.splice(insertAt, 0, from)
+  return next
+}
+
+export type TipsSortKey = 'name' | 'hours' | 'weight' | 'department'
+export type TipsSortDirection = 'asc' | 'desc'
+
+export interface TipsSort {
+  key: TipsSortKey
+  dir: TipsSortDirection
+}
+
+/**
+ * Sort breakdown rows for display. Pure and stable: ties keep their existing
+ * order, and a null sort preserves the saved (manual) order. Sorting never
+ * reorders the underlying draft — the component sorts a view copy.
+ */
+export function sortTipsShares<T extends { name: string; hours: number; shareWeight: number; departmentName?: string | null }>(
+  rows: readonly T[],
+  sort: TipsSort | null,
+): T[] {
+  const copy = [...rows]
+  if (!sort) return copy
+  const direction = sort.dir === 'desc' ? -1 : 1
+  const value = (row: T): string | number => {
+    if (sort.key === 'name') return row.name.trim().toUpperCase()
+    if (sort.key === 'hours') return Number(row.hours) || 0
+    return Number(row.shareWeight) || 0
+  }
+  return copy
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      if (sort.key === 'department') {
+        const left = (a.row.departmentName ?? '').trim().toUpperCase()
+        const right = (b.row.departmentName ?? '').trim().toUpperCase()
+        // A missing department always sorts last, whichever direction.
+        if (!left && !right) return a.index - b.index
+        if (!left) return 1
+        if (!right) return -1
+        const deptDelta = left.localeCompare(right)
+        return deptDelta !== 0 ? deptDelta * direction : a.index - b.index
+      }
+      const left = value(a.row)
+      const right = value(b.row)
+      const delta =
+        typeof left === 'number' && typeof right === 'number'
+          ? left - right
+          : String(left).localeCompare(String(right))
+      return delta !== 0 ? delta * direction : a.index - b.index
+    })
+    .map((entry) => entry.row)
+}
+
+/**
+ * Merge a bulk selection into the current draft. Existing rows are kept in
+ * place (and never duplicated by staffId); newly selected people are appended
+ * with a fresh sortOrder. Also returns how many were actually added.
+ */
+export function mergeTipsStaff(
+  shares: readonly TipsShareRow[],
+  staff: readonly TipsStaffOption[],
+): { shares: TipsShareRow[]; added: number } {
+  const merged = [...shares]
+  const seen = new Set(merged.map((s) => s.staffId).filter((id): id is string => !!id))
+  let added = 0
+  for (const person of staff) {
+    if (!person.id || seen.has(person.id)) continue
+    seen.add(person.id)
+    merged.push({
+      staffId: person.id,
+      name: person.name.trim().toUpperCase(),
+      hours: 0,
+      shareWeight: 1,
+      sortOrder: merged.length,
+      status: 'PLANNED',
+      departmentName: person.departmentName ?? null,
+      noteCount: 0,
+    })
+    added++
+  }
+  return { shares: merged, added }
+}
+

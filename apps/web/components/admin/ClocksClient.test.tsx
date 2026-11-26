@@ -95,6 +95,17 @@ describe('ClocksClient', () => {
     })
   })
 
+  it('counts a rest break as paid time (10m break on an 8h shift)', async () => {
+    mockFetch(routes([{ ...row, breaksMinutes: 10, approvalStatus: 'APPROVED' }]))
+
+    render(<ClocksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => {
+      // TIME WORKED cell shows the full 8h span — the 10m rest break is paid.
+      expect(screen.getByText('8H 0M')).toBeDefined()
+    })
+  })
+
   it('groups clock sessions under position headers and toggles the grouped view', async () => {
     mockFetch(routes([row, { ...row, id: 'tc2' }], [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }]))
 

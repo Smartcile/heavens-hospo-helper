@@ -6,9 +6,12 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
+import { DateInput } from '@/components/ui/DateInput'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox } from '@/components/ui/Combobox'
 import { SearchSelect } from '@/components/ui/SearchSelect'
+import { AddSelect } from '@/components/ui/AddSelect'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { moveItem } from '@/lib/array'
@@ -18,6 +21,10 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { normaliseGroupLabel } from '@/lib/task-groups'
+import { isCustomTask } from '@/lib/custom-tasks'
+import { TaskThread } from '@/components/tasks/TaskThread'
+import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
+import { buildSubtaskSeed } from '@/lib/task-subtask-seed'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { ImportModal } from '@/components/import/ImportModal'
 import {
@@ -42,6 +49,7 @@ interface Task {
   venueId: string
   departmentId: string | null
   sectionId: string | null
+  sectionIds?: string[]
   completionType: string
   scheduleType: string
   scheduleDays: number[]
@@ -58,6 +66,12 @@ interface Task {
   checklistIds?: string[]
   assignedToStaffId?: string | null
   assigneeName?: string | null
+  isOneOff?: boolean
+  dueDate?: string | null
+  rolloverEnabled?: boolean
+  isThread?: boolean
+  threadClosedAt?: string | null
+  threadClosedById?: string | null
   subtaskOrder?: number
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   allowedOutcomes?: string[]
@@ -82,7 +96,7 @@ interface Department { id: string; name: string; venueId: string; colour: string
 interface Section { id: string; name: string; departmentId: string; venueId: string }
 interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
-interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null }
+interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null; sectionName?: string | null; sectionCount?: number }
 interface ChecklistScheduleRow { dayOfWeek: number; fromTime: string; toTime: string | null }
 interface Checklist {
   id: string
@@ -126,6 +140,7 @@ interface FormState {
   checklistIds: string[]
   assignedToStaffId: string
   linkedItemId: string
+  isThread: boolean
 }
 
 const EMPTY_FORM: FormState = {
@@ -133,7 +148,7 @@ const EMPTY_FORM: FormState = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '', isThread: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -211,6 +226,17 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
+  // Compact "+ CUSTOM TASK" modal (#145) — the same POST as the full editor,
+  // reduced to the ad-hoc fields: title, description, assignee, scope, due date,
+  // rollover. No new page.
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customForm, setCustomForm] = useState({
+    title: '', description: '', venueId: '', departmentId: '', sectionId: '',
+    assignedToStaffId: '', dueDate: '', rolloverEnabled: false, isThread: false,
+  })
+  const [customSaving, setCustomSaving] = useState(false)
+  const [customError, setCustomError] = useState('')
+
   // Inline checklist editor (right panel)
   const [clEditing, setClEditing] = useState<Checklist | 'new' | null>(null)
   const [clName, setClName] = useState('')
@@ -241,6 +267,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [dropActive, setDropActive] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
+  // #166: after saving a NEW top-level task, offer to add a linked subtask.
+  const [subtaskPrompt, setSubtaskPrompt] = useState<{ id: string; title: string; seed: FormState } | null>(null)
 
   // PDF export popup
   const [pdfOpen, setPdfOpen] = useState(false)
@@ -296,6 +324,56 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
+  function openCustom() {
+    const venueId = filterVenue || getActiveVenueId(role, sessionVenueId, defaultVenueId) || venues[0]?.id || ''
+    setCustomForm({
+      title: '', description: '', venueId,
+      departmentId: filterDept || '', sectionId: '',
+      assignedToStaffId: '', dueDate: '', rolloverEnabled: false, isThread: false,
+    })
+    void loadAssignees(venueId)
+    setCustomError('')
+    setCustomOpen(true)
+  }
+  async function saveCustom() {
+    if (!customForm.title.trim() || !customForm.venueId) {
+      setCustomError('TITLE AND VENUE ARE REQUIRED')
+      return
+    }
+    setCustomSaving(true)
+    setCustomError('')
+    try {
+      const r = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: customForm.title,
+          description: customForm.description || null,
+          venueId: customForm.venueId,
+          departmentId: customForm.departmentId || null,
+          sectionId: customForm.sectionId || null,
+          assignedToStaffId: customForm.assignedToStaffId || null,
+          isOneOff: true,
+          dueDate: customForm.dueDate || null,
+          rolloverEnabled: customForm.rolloverEnabled,
+          isThread: customForm.isThread,
+          scheduleType: 'DAILY',
+          completionType: 'TICK',
+        }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        setCustomError(d.error ?? 'SAVE FAILED')
+        return
+      }
+      setCustomOpen(false)
+      load()
+    } catch {
+      setCustomError('COULD NOT CONNECT')
+    } finally {
+      setCustomSaving(false)
+    }
+  }
   function openEdit(t: Task) {
     setEditing(t)
     setForm({
@@ -313,6 +391,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       checklistIds: t.checklistIds ?? [],
       assignedToStaffId: t.assignedToStaffId ?? '',
       linkedItemId: t.linkedItemId ?? '',
+      isThread: !!t.isThread,
     })
     void loadAssignees(t.venueId)
     void loadItems(t.venueId)
@@ -352,6 +431,19 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
+  // #166: seed a child from the task that was just saved. This is the same
+  // "edit before saving" model as + ADD SUBTASK, but copies the wider form
+  // (description, outcome policy, competency guides, linked item and lists).
+  // `requiredTrainingIds` is deliberately not copied — POST would re-point the
+  // parent's legacy training link to the new task.
+  function openSubtaskCreateFromSeed(parent: { id: string; title: string }, seed: FormState) {
+    setEditing(null)
+    setForm({ ...EMPTY_FORM, ...buildSubtaskSeed(parent, seed) })
+    void loadAssignees(seed.venueId)
+    void loadItems(seed.venueId)
+    setRequireRetrain(false); setChangeSummary('')
+    setError(''); setModalOpen(true)
+  }
   function toggleParentCollapse(id: string) {
     setCollapsedParents((prev) => {
       const next = new Set(prev)
@@ -366,6 +458,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (form.scheduleType === 'WEEKLY' && form.scheduleDays.length === 0) { setError('SELECT AT LEAST ONE DAY FOR WEEKLY SCHEDULE'); return }
     if (form.scheduleType === 'CUSTOM' && !form.customCron.trim()) { setError('CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE'); return }
     setSaving(true); setError('')
+    const wasNewTopLevel = !editing && !form.parentTaskId
+    const savedForm = form
     const url = editing ? `/api/admin/tasks/${editing.id}` : '/api/admin/tasks'
     const method = editing ? 'PUT' : 'POST'
     const r = await fetch(url, {
@@ -380,13 +474,22 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         linkedItemId: form.linkedItemId || null,
         requiredTrainingIds: form.requiredTrainingIds,
         competencyGuideIds: form.competencyGuideIds,
+        isThread: form.isThread,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
         ...(editing ? { requireRetrain, changeSummary } : {}),
       }),
     })
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); setSaving(false); return }
+    // The POST returns the created row. Only a NEW top-level task is offered a
+    // child — never an edit, never a task that is already a subtask.
+    const created: { id?: string; title?: string } | null = wasNewTopLevel
+      ? await r.json().catch(() => null)
+      : null
     setSaving(false); setModalOpen(false); load()
+    if (wasNewTopLevel && created?.id) {
+      setSubtaskPrompt({ id: created.id, title: created.title ?? savedForm.title, seed: savedForm })
+    }
   }
 
   async function handleDelete(id: string) {
@@ -529,13 +632,16 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
+  const customDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === customForm.venueId).map((d) => ({ value: d.id, label: d.name }))]
+  const customSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === customForm.departmentId).map((s) => ({ value: s.id, label: s.name }))]
   const guideOptions = guides.filter((g) => g.venueId === form.venueId)
 
   const taskById = new Map(tasks.map((t) => [t.id, t]))
   const editingLive = editing ? taskById.get(editing.id) ?? editing : null
-  const parentSelectOptions = [
-    { value: '', label: 'NONE (TOP-LEVEL TASK)' },
-    ...availableParentTasks(tasks, { venueId: form.venueId, taskId: editing?.id }).map((t) => ({ value: t.id, label: t.title })),
+  const parentSelectGroups = [
+    { label: 'TOP LEVEL', options: [{ value: '', label: 'NONE (TOP-LEVEL TASK)' }] },
+    ...groupTasksBySection(availableParentTasks(tasks, { venueId: form.venueId, taskId: editing?.id }))
+      .map((g) => ({ label: g.label, options: g.tasks.map((t) => ({ value: t.id, label: t.title })) })),
   ]
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
   const clSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === clDeptId).map((s) => ({ value: s.id, label: s.name }))]
@@ -551,14 +657,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     ...audienceOptions.sections.map((s) => ({ value: `SECTION:${s.id}`, label: `SECTION: ${s.name}` })),
     ...audienceOptions.positions.map((p) => ({ value: `POSITION:${p.id}`, label: `POSITION: ${p.name}` })),
   ]
-  // Add-a-task dropdown is scoped to the checklist's department/section (drag in
-  // from the left to add anything else).
-  const clAddOptions = [
-    { value: '', label: '+ ADD A TASK…' },
-    ...tasks
-      .filter((t) => t.venueId === clVenueId && !clSelected.includes(t.id) && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
-      .map((t) => ({ value: t.id, label: t.title })),
-  ]
+  // Add-a-task picker is scoped to the checklist's department/section (drag in
+  // from the left to add anything else) and grouped by each task's own section.
+  const clAddGroups = groupTasksBySection(
+    tasks.filter((t) => t.venueId === clVenueId && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true)),
+  ).map((g) => ({ label: g.label, options: g.tasks.map((t) => ({ value: t.id, label: t.title })) }))
 
   const filterSectionOptions = [
     { value: '', label: 'ALL SECTIONS' },
@@ -570,15 +673,20 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     { value: '', label: 'ANY USAGE' },
     { value: 'list', label: 'IN A CHECKLIST' },
     { value: 'nolist', label: 'NOT IN A LIST' },
+    { value: 'custom', label: 'CUSTOM TASKS' },
     { value: 'training', label: 'HAS TRAINING/SOP' },
     ...(clEditing ? [{ value: 'notinthis', label: 'NOT IN THIS LIST' }] : []),
   ]
+  const checklistTaskSet = new Set(
+    tasks.filter((t) => (t._count?.checklistLinks ?? 0) > 0 || (t.checklistIds?.length ?? 0) > 0).map((t) => t.id),
+  )
   const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0 || (t.taskGuides?.length ?? 0) > 0
   const visibleTasks = tasks.filter((t) => {
     if (filterSection && t.sectionId !== filterSection) return false
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
+    if (filterUsage === 'custom' && !isCustomTask(t, { anyAssignee: true, checklistTaskIds: checklistTaskSet })) return false
     // #19: filter against the LIVE selection, not the snapshot taken when the
     // editor opened. A task dropped this session must leave the left list too;
     // this also covers a brand-new list (`clEditing === 'new'`).
@@ -591,6 +699,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const out: { text: string; cls: string }[] = []
     const n = t._count?.checklistLinks ?? 0
     if (n > 0) out.push({ text: n > 1 ? `${n} LISTS` : 'LIST', cls: 'text-success' })
+    if (t.isThread) out.push({ text: 'THREAD', cls: 'text-info' })
+    if (t.isOneOff) out.push({ text: 'ONE-OFF', cls: 'text-warning' })
+    else if (t.assignedToStaffId) out.push({ text: 'ASSIGNED', cls: 'text-accent' })
     const kinds = new Set<string>()
     ;(t.trainingModules ?? []).forEach((m) => kinds.add(m.kind))
     ;(t.requiredTraining ?? []).forEach((r) => { if (r.module) kinds.add(r.module.kind) })
@@ -643,8 +754,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       >
         <div className={`w-1.5 h-1.5 flex-shrink-0 ${t.isActive ? 'bg-success' : 'bg-grey-mid'}`} />
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-sm font-semibold uppercase text-white truncate">
-            {depth > 0 ? '↳ ' : ''}{t.title}
+          <div className="font-mono text-sm font-semibold uppercase text-white flex items-baseline gap-2 min-w-0">
+            <span className="flex-shrink-0 text-grey-light" title={taskSectionTitle(t)}>{taskSectionPrefix(t)} </span>
+            <span className="truncate min-w-0">{depth > 0 ? '↳ ' : ''}{t.title}</span>
           </div>
           {t.description && <p className="font-mono text-xs text-grey-light truncate">{richTextToPlainText(t.description)}</p>}
           {t.linkedItem && (
@@ -716,7 +828,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         <div className="space-y-4 pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
-            <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={openCustom}>+ CUSTOM TASK</Button>
+              <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -964,7 +1079,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                           className="border border-grey-mid px-2 py-1.5 bg-grey-dark cursor-grab space-y-1"
                         >
                           <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-white truncate">{i + 1}. {t?.title ?? '(task removed)'}</span>
+                          <span className="font-mono text-xs text-white truncate">
+                            {i + 1}.{' '}
+                            {t && <span className="whitespace-nowrap text-grey-light" title={taskSectionTitle(t)}>{taskSectionPrefix(t)} </span>}
+                            {t?.title ?? '(task removed)'}
+                          </span>
                           <div className="flex gap-2 flex-shrink-0">
                             {t && <button type="button" onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white">EDIT</button>}
                             <button type="button" disabled={i === 0} onClick={() => setClSelected((p) => moveItem(p, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↑</button>
@@ -988,15 +1107,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     })
                   )}
                 </div>
-                <Combobox
-                  options={tasks
-                    .filter((t) => t.venueId === clVenueId && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
-                    .map((t) => ({ value: t.id, label: t.title, description: richTextToPlainText(t.description) }))}
-                  selected={clSelected}
-                  onChange={(ids) => setClSelected(ids)}
-                  placeholder="+ ADD A TASK..."
-                  hideTags
-                />
+                <div data-testid="cl-add-task">
+                  <AddSelect
+                    groups={clAddGroups}
+                    selected={clSelected}
+                    onAdd={(id) => addToChecklist(id)}
+                    placeholder="+ ADD A TASK..."
+                    emptyLabel="ALL TASKS ARE IN THIS LIST"
+                  />
+                </div>
               </div>
 
               {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
@@ -1034,7 +1153,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
                       <ol className="font-mono text-xs text-grey-light list-decimal list-inside">
-                        {c.tasks.slice(0, 5).map((t) => <li key={t.id} className="truncate">{t.title}</li>)}
+                        {c.tasks.slice(0, 5).map((t) => (
+                          <li key={t.id} className="truncate">
+                            <span className="whitespace-nowrap text-grey-light" title={taskSectionTitle(t)}>{taskSectionPrefix(t)}</span> {t.title}
+                          </li>
+                        ))}
                         {c.tasks.length > 5 && <li className="list-none">+ {c.tasks.length - 5} more</li>}
                       </ol>
                     </div>
@@ -1112,14 +1235,18 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <Select label="Section (optional)" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })} options={formSectionOptions} />
 
           <div className="space-y-2">
-            <Select
-              data-testid="task-parent-select"
-              label="Parent task (optional)"
-              value={form.parentTaskId}
-              onChange={(e) => setForm({ ...form, parentTaskId: e.target.value })}
-              options={parentSelectOptions}
-              disabled={!!editingLive && (editingLive.subtasks?.length ?? 0) > 0}
-            />
+            <div className="space-y-1" data-testid="task-parent-select">
+              <label htmlFor="tasks-parent-task-input" className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
+              <SearchSelect
+                id="tasks-parent-task-input"
+                groups={parentSelectGroups}
+                value={form.parentTaskId}
+                onChange={(v) => setForm({ ...form, parentTaskId: v })}
+                placeholder="NONE (TOP-LEVEL TASK)"
+                disabled={!!editingLive && (editingLive.subtasks?.length ?? 0) > 0}
+                emptyLabel="NO OTHER TASKS IN THIS VENUE"
+              />
+            </div>
             <p className="font-mono text-xs uppercase text-grey-light">
               LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
             </p>
@@ -1141,18 +1268,24 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
                 ) : (
                   <div className="space-y-1">
-                    {editingLive!.subtasks!.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
-                        <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => openEditById(s.id)}
-                          className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
-                        >
-                          EDIT
-                        </button>
-                      </div>
-                    ))}
+                    {editingLive!.subtasks!.map((s) => {
+                      const sub = taskById.get(s.id)
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                          <span className="font-mono text-xs uppercase text-white truncate">
+                            {sub && <span className="whitespace-nowrap text-grey-light" title={taskSectionTitle(sub)}>{taskSectionPrefix(sub)} </span>}
+                            {s.title}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEditById(s.id)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                          >
+                            EDIT
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1207,6 +1340,25 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             onOverrideChange={(overrideOutcomes) => setForm({ ...form, overrideOutcomes })}
           />
 
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.isThread}
+              onChange={(e) => setForm({ ...form, isThread: e.target.checked })}
+              className="w-4 h-4 accent-white"
+            />
+            <span className="font-mono text-xs uppercase text-white">Thread — comments + sign-off</span>
+          </label>
+
+          {editing && form.isThread && (
+            <TaskThread
+              taskId={editing.id}
+              basePath="/api/admin/tasks"
+              uploadEndpoint="/api/admin/upload"
+              initialClosed={!!editing.threadClosedAt}
+            />
+          )}
+
           {form.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -1258,6 +1410,107 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           </div>
         </div>
       </Modal>
+
+      <Modal isOpen={customOpen} onClose={() => setCustomOpen(false)} title="CUSTOM TASK" size="md">
+        <div className="space-y-3">
+          <Input
+            label="Task title"
+            value={customForm.title}
+            onChange={(e) => setCustomForm({ ...customForm, title: e.target.value })}
+            placeholder="E.G. RESEARCH HIGH CHAIRS"
+          />
+          <Textarea
+            label="Description (optional)"
+            value={customForm.description}
+            onChange={(e) => setCustomForm({ ...customForm, description: e.target.value })}
+            placeholder="WHAT NEEDS DOING?"
+          />
+          {role === 'ADMIN' && (
+            <Select
+              label="Venue"
+              value={customForm.venueId}
+              onChange={(e) => {
+                const venueId = e.target.value
+                setCustomForm({ ...customForm, venueId, departmentId: '', sectionId: '', assignedToStaffId: '' })
+                void loadAssignees(venueId)
+              }}
+              options={venueOptions}
+              placeholder="SELECT VENUE"
+            />
+          )}
+          <Select
+            label="Assign to (optional)"
+            value={customForm.assignedToStaffId}
+            onChange={(e) => setCustomForm({ ...customForm, assignedToStaffId: e.target.value })}
+            options={[{ value: '', label: 'NO ONE (SHARED)' }, ...assignees.map((a) => ({ value: a.id, label: a.name }))]}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Department"
+              value={customForm.departmentId}
+              onChange={(e) => setCustomForm({ ...customForm, departmentId: e.target.value, sectionId: '' })}
+              options={customDeptOptions}
+            />
+            <Select
+              label="Section (optional)"
+              value={customForm.sectionId}
+              onChange={(e) => setCustomForm({ ...customForm, sectionId: e.target.value })}
+              options={customSectionOptions}
+            />
+          </div>
+          <div className="flex items-end gap-4 flex-wrap">
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Due date (optional)</span>
+              <DateInput
+                value={customForm.dueDate}
+                onChange={(e) => setCustomForm({ ...customForm, dueDate: e.target.value })}
+                className="w-40"
+              />
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer font-mono text-xs uppercase text-white">
+              <input
+                type="checkbox"
+                checked={customForm.rolloverEnabled}
+                onChange={(e) => setCustomForm({ ...customForm, rolloverEnabled: e.target.checked })}
+                className="w-4 h-4 accent-white"
+              />
+              Roll over if not done
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer font-mono text-xs uppercase text-white">
+              <input
+                type="checkbox"
+                checked={customForm.isThread}
+                onChange={(e) => setCustomForm({ ...customForm, isThread: e.target.checked })}
+                className="w-4 h-4 accent-white"
+              />
+              Thread (comments + sign-off)
+            </label>
+          </div>
+          <p className="font-mono text-xs text-grey-light">
+            ONE-OFF TASKS APPEAR IN THE ASSIGNEE&rsquo;S CUSTOM TASKS ON THE FLOOR. THEY ARE NEVER DUPLICATED INTO A CHECKLIST.
+          </p>
+          {customError && <p className="font-mono text-xs text-danger">{customError}</p>}
+          <div className="flex gap-2 pt-1">
+            <Button onClick={saveCustom} loading={customSaving}>SAVE</Button>
+            <Button variant="ghost" onClick={() => setCustomOpen(false)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={!!subtaskPrompt}
+        title="ADD A SUBTASK?"
+        message={subtaskPrompt ? `CREATE A SUBTASK UNDER '${subtaskPrompt.title}'?` : undefined}
+        confirmLabel="ADD SUBTASK"
+        cancelLabel="NO THANKS"
+        onConfirm={() => {
+          if (!subtaskPrompt) return
+          const prompt = subtaskPrompt
+          setSubtaskPrompt(null)
+          openSubtaskCreateFromSeed({ id: prompt.id, title: prompt.title }, prompt.seed)
+        }}
+        onClose={() => setSubtaskPrompt(null)}
+      />
 
       <Modal isOpen={pdfOpen} onClose={() => setPdfOpen(false)} title="DOWNLOAD CHECKLISTS (PDF)">
         <div className="space-y-3">

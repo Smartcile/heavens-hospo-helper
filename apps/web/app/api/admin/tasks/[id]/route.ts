@@ -9,6 +9,7 @@ import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } fr
 import { syncTaskLists } from '@/lib/task-lists.server'
 import { sanitiseRichText } from '@/lib/rich-text'
 import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
+import { parseDueDate } from '@/lib/custom-tasks'
 
 interface Params {
   params: { id: string }
@@ -27,6 +28,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
       assignedToStaffId: true,
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
+      isOneOff: true, dueDate: true, rolloverEnabled: true, rolledOverFrom: true,
+      isThread: true, threadClosedAt: true, threadClosedById: true,
       status: true, hsCategory: true, linkedItemId: true,
       linkedItem: { select: linkedItemSelect },
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
@@ -129,6 +132,23 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.monthlyDay !== undefined) updates.monthlyDay = body.monthlyDay != null ? (Number(body.monthlyDay) || 1) : null
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder
+  // --- Ad-hoc / one-off fields ---
+  if (body.isOneOff !== undefined) updates.isOneOff = !!body.isOneOff
+  if (body.rolloverEnabled !== undefined) updates.rolloverEnabled = !!body.rolloverEnabled
+  if (body.dueDate !== undefined) {
+    const due = parseDueDate(body.dueDate)
+    if (!due.ok) return NextResponse.json({ error: 'INVALID DUE DATE' }, { status: 400 })
+    updates.dueDate = due.value
+  }
+  // --- Threads (#145 Wave B) ---
+  if (body.isThread !== undefined) {
+    updates.isThread = !!body.isThread
+    // Turning a thread off also clears its sign-off stamp.
+    if (!body.isThread) {
+      updates.threadClosedAt = null
+      updates.threadClosedById = null
+    }
+  }
   // --- Food Health & Safety fields ---
   if (body.status !== undefined) updates.status = body.status
   if (body.hsCategory !== undefined) updates.hsCategory = body.hsCategory ?? null

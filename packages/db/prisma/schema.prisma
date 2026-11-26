@@ -517,6 +517,7 @@ model Staff {
   department           Department?          @relation(fields: [departmentId], references: [id])
   taskCompletions      TaskCompletion[]
   taskCompletionsUndone TaskCompletion[] @relation("TaskCompletionUndoneBy")
+  taskComments         TaskComment[]
   taskProgress         TaskProgress[]
   trainingAssignments  TrainingAssignment[]
   trainingCompletions  TrainingCompletion[]
@@ -619,6 +620,10 @@ model Task {
   readingMax        Float?
   criticalMin       Float?
   criticalMax       Float?
+  // --- Threads (#145 Wave B) ---
+  isThread          Boolean        @default(false) // comments + sign-off on the task
+  threadClosedAt    DateTime?
+  threadClosedById  String? // Staff id of the person who signed off (no relation, like ShiftNote.authorId)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   deletedAt         DateTime?
@@ -641,8 +646,27 @@ model Task {
   followUps        FollowUp[]
   moduleTasks      ModuleTask[]
   sections         TaskSection[]
+  comments         TaskComment[]
 
   @@index([parentTaskId])
+}
+
+// A comment in a task thread (#145 Wave B). Soft-delete only; photos live as
+// uploaded URLs (same shape as GuideStep.imageUrls).
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  staffId   String
+  body      String
+  imageUrls String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([taskId, createdAt])
 }
 
 model TaskCompletion {
@@ -4474,12 +4498,36 @@ model TipsShare {
   updatedAt      DateTime        @updatedAt
   deletedAt      DateTime?
 
-  tipsPeriod TipsPeriod @relation(fields: [tipsPeriodId], references: [id])
-  staff      Staff?     @relation(fields: [staffId], references: [id])
+  tipsPeriod TipsPeriod       @relation(fields: [tipsPeriodId], references: [id])
+  staff      Staff?           @relation(fields: [staffId], references: [id])
+  notes      TipsShareNote[]
 
   @@unique([tipsPeriodId, staffId])
   @@index([tipsPeriodId, status])
   @@index([staffId])
+}
+
+// One history thread per share (person x period). Anchored to the SHARE rather
+// than the staff link so a manual (staffId: null) person keeps their notes, and
+// so a re-added staff member revives the row and keeps its history. Additive
+// (#180) - `venueId` is denormalised for scoping, the same shape and source
+// labels as AvailabilityComment so both threads render identically.
+model TipsShareNote {
+  id           String                    @id @default(uuid())
+  venueId      String
+  tipsPeriodId String
+  tipsShareId  String
+  body         String
+  source       AvailabilityCommentSource @default(MANAGER)
+  authorId     String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  deletedAt    DateTime?
+
+  share TipsShare @relation(fields: [tipsShareId], references: [id])
+
+  @@index([tipsShareId, createdAt])
+  @@index([venueId, tipsPeriodId])
 }
 
 // -- HEAVENLY HELP (#50) -------------------------------------------------

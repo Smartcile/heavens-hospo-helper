@@ -13,6 +13,7 @@ const {
 } = vi.hoisted(() => ({
   prisma: {
     task: { findUnique: vi.fn(), update: vi.fn() },
+    staff: { count: vi.fn() },
   },
   getServerSession: vi.fn(),
   guardAccess: vi.fn(),
@@ -56,6 +57,7 @@ describe('/api/admin/tasks/[id]', () => {
     guardAccess.mockResolvedValue(null)
     prisma.task.findUnique.mockResolvedValue({ id: 't1', venueId: 'v1', parentTaskId: null })
     prisma.task.update.mockResolvedValue({ id: 't1' })
+    prisma.staff.count.mockResolvedValue(1)
     parentLinkError.mockResolvedValue(null)
     nextSubtaskOrder.mockResolvedValue(2)
     hasLiveSubtasks.mockResolvedValue(false)
@@ -162,6 +164,40 @@ describe('/api/admin/tasks/[id]', () => {
       where: { id: 't1' },
       data: { parentTaskId: 'p1', subtaskOrder: 2 },
     })
+  })
+
+  it('PUT saves the one-off fields (#145)', async () => {
+    const res = await PUT(
+      req({ isOneOff: true, dueDate: '2026-11-25', rolloverEnabled: true }),
+      { params: { id: 't1' } },
+    )
+
+    expect(res.status).toBe(200)
+    const data = prisma.task.update.mock.calls[0][0].data
+    expect(data.isOneOff).toBe(true)
+    expect(data.rolloverEnabled).toBe(true)
+    expect((data.dueDate as Date).toISOString()).toBe('2026-11-25T00:00:00.000Z')
+  })
+
+  it('PUT rejects an invalid one-off due date', async () => {
+    const res = await PUT(req({ dueDate: '2026-02-31' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'INVALID DUE DATE' })
+    expect(prisma.task.update).not.toHaveBeenCalled()
+  })
+
+  it('PUT rejects an assignee from another venue (#145)', async () => {
+    prisma.staff.count.mockResolvedValue(0)
+
+    const res = await PUT(req({ assignedToStaffId: 'other-venue-staff' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'ASSIGNEE IS NOT IN THIS VENUE' })
+    expect(prisma.staff.count).toHaveBeenCalledWith({
+      where: { id: 'other-venue-staff', venueId: 'v1', deletedAt: null },
+    })
+    expect(prisma.task.update).not.toHaveBeenCalled()
   })
 
   it('DELETE soft-deletes the parent and unparents its children', async () => {

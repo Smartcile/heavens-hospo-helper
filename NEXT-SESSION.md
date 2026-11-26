@@ -75,6 +75,7 @@ After I answer:
   - the local Postgres database running;
   - `AGENT_SCREENSHOT_EMAIL` and `AGENT_SCREENSHOT_PASSWORD` in `apps/web/.env.local`;
   - a page path and role (public/admin/worker) from the triage comment.
+- The Chrome extension is installed, so an agent can also open the running app in the real browser for a live look or click-through when you ask. Use it on request only, local dev only (`WORKFLOW.md` → "Browser checks on request").
 - iOS-only CSS cannot be verified by headless Chrome; use a real iPhone screenshot.
 - Keep 2 implementers active (one per lane) at most. Never run two issues that touch the same files in parallel.
 

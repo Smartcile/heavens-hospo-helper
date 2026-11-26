@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Panel } from '@/components/ui/Panel'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
+import { sumBreakSplit } from '@/lib/nz-payroll'
 import { nearestIndex, type Rect } from '@/lib/reorder'
 import { collectPositions, groupByPosition as groupItemsByPosition, insertSubset } from '@/lib/staff-groups'
 
@@ -38,7 +39,16 @@ interface Entry {
   studentLoan: number
   netPay: number
   employerCost: number
-  breakdown: { dateKey: string; clockIn: string; clockOut: string; hours: number; breaksMinutes: number; type: string }[] | null
+  breakdown: {
+    dateKey: string
+    clockIn: string
+    clockOut: string
+    hours: number
+    breaksMinutes: number
+    paidBreakMinutes?: number
+    unpaidBreakMinutes?: number
+    type: string
+  }[] | null
   staff: {
     firstName: string
     lastName: string
@@ -76,6 +86,21 @@ const FREQUENCIES = [
 const TAX_CODES = ['M', 'M SL', 'S', 'S SL', 'SB', 'SB SL', 'SH', 'SH SL', 'ST', 'ST SL', 'CAE', 'CAE SL']
 
 const money = (n: number | null | undefined) => (n == null ? '—' : `$${n.toFixed(2)}`)
+
+/**
+ * Rest vs meal minutes for one payslip session. Rows written before the split
+ * existed carry only `breaksMinutes`, so they keep the legacy "X M BRK" label.
+ */
+function breakLabel(b: { breaksMinutes: number; paidBreakMinutes?: number; unpaidBreakMinutes?: number }): string {
+  const hasSplit = b.paidBreakMinutes != null || b.unpaidBreakMinutes != null
+  if (hasSplit) {
+    const paid = b.paidBreakMinutes ?? 0
+    const unpaid = b.unpaidBreakMinutes ?? 0
+    if (paid === 0 && unpaid === 0) return ''
+    return ` · BRK ${paid}M PAID / ${unpaid}M UNPAID`
+  }
+  return b.breaksMinutes ? ` · ${b.breaksMinutes}M BRK` : ''
+}
 
 export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
@@ -369,6 +394,13 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
     )
   }
 
+  const payslipBreaks = sumBreakSplit(payslip?.breakdown)
+  // A breakdown written before the split existed has total breaks only — show
+  // `—` rather than a misleading 0.00H next to a visible "X M BRK" line.
+  const payslipHasSplit = (payslip?.breakdown ?? []).some(
+    (b) => b.paidBreakMinutes != null || b.unpaidBreakMinutes != null,
+  )
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -639,6 +671,8 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                 ['OVERTIME HOURS', `${(payslip.overtimeHours ?? 0).toFixed(2)}`],
                 ['PUBLIC HOLIDAY HOURS', `${(payslip.publicHolidayHours ?? 0).toFixed(2)}`],
                 ['TOTAL HOURS', `${payslip.totalHours.toFixed(2)}`],
+                ['PAID BREAKS', payslipHasSplit ? `${(payslipBreaks.paidMinutes / 60).toFixed(2)}H` : '—'],
+                ['UNPAID BREAKS', payslipHasSplit ? `${(payslipBreaks.unpaidMinutes / 60).toFixed(2)}H` : '—'],
                 ['RATE', money(payslip.hourlyRate)],
                 ['GROSS PAY', money(payslip.grossPay ?? payslip.totalPay)],
                 ['HOLIDAY PAY (8% CASUAL)', money(payslip.holidayPay)],
@@ -665,7 +699,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <span className="font-mono text-xs text-grey-light">
                         {b.dateKey} · {new Date(b.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}—{new Date(b.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <span className="font-mono text-xs text-white">{b.type} · {b.hours.toFixed(2)}H{b.breaksMinutes ? ` · ${b.breaksMinutes}M BRK` : ''}</span>
+                      <span className="font-mono text-xs text-white">{b.type} · {b.hours.toFixed(2)}H{breakLabel(b)}</span>
                     </Panel>
                   ))}
                 </div>

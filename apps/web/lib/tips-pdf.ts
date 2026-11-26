@@ -3,12 +3,16 @@ import { pdfSafe } from '@/lib/pdf-safe'
 
 export interface TipsPdfShare {
   name: string
+  /** The person's department (blank for a manual, non-system person). */
+  department?: string | null
   hours: number
   shareWeight: number
   amount: number
   status: string
   approvalNote?: string | null
   issueNote?: string | null
+  /** Per-person period thread bodies — printed only when `includeNotes`. */
+  notes?: string[]
 }
 
 export interface TipsPdfData {
@@ -18,6 +22,8 @@ export interface TipsPdfData {
   toDate: string
   poolTotal: number
   shares: TipsPdfShare[]
+  /** Opt-in (#180), default OFF: print each person's note thread. */
+  includeNotes?: boolean
 }
 
 function money(n: number): string {
@@ -62,8 +68,15 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
   doc.text(`POOL: ${money(data.poolTotal)}`, margin, y)
   y += 9
 
-  // Column layout (mm)
-  const cols = { name: margin, hours: margin + 74, weight: margin + 92, amount: margin + 108, status: margin + 136 }
+  // Column layout (mm). A4 portrait: page 210mm, 15mm margins → 180mm inner.
+  const cols = {
+    name: margin,
+    department: margin + 55,
+    hours: margin + 103,
+    weight: margin + 117,
+    amount: margin + 135,
+    status: margin + 147,
+  }
   const rowH = 6
 
   function header() {
@@ -75,6 +88,7 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
     doc.setFontSize(8)
     doc.setTextColor(0)
     doc.text('NAME', cols.name, y)
+    doc.text('DEPARTMENT', cols.department, y)
     doc.text('HOURS', cols.hours, y, { align: 'right' })
     doc.text('WEIGHT', cols.weight, y, { align: 'right' })
     doc.text('AMOUNT', cols.amount, y, { align: 'right' })
@@ -109,8 +123,10 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(0)
-    const name = doc.splitTextToSize(pdfSafe(share.name).toUpperCase(), 68) as string[]
+    const name = doc.splitTextToSize(pdfSafe(share.name).toUpperCase(), 48) as string[]
     doc.text(name, cols.name, y)
+    const department = share.department ? (doc.splitTextToSize(pdfSafe(share.department).toUpperCase(), 40) as string[]) : []
+    if (department.length > 0) doc.text(department, cols.department, y)
     doc.text(String(share.hours), cols.hours, y, { align: 'right' })
     doc.text(String(share.shareWeight), cols.weight, y, { align: 'right' })
     doc.text(money(share.amount), cols.amount, y, { align: 'right' })
@@ -125,6 +141,25 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
       const lines = doc.splitTextToSize(pdfSafe(notes.join(' · ')), innerW - 4) as string[]
       doc.text(lines, cols.name + 3, y - 1)
       y += lines.length * 4 + 1
+    }
+
+    // Optional per-person note thread (#180) — only when explicitly asked for.
+    if (data.includeNotes) {
+      for (const note of share.notes ?? []) {
+        const text = typeof note === 'string' ? note.trim() : ''
+        if (!text) continue
+        if (y > pageH - 24) {
+          doc.addPage()
+          y = 18
+          header()
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(90)
+        const lines = doc.splitTextToSize(pdfSafe(`NOTE: ${text}`), innerW - 8) as string[]
+        doc.text(lines, cols.name + 3, y - 1)
+        y += lines.length * 3.8 + 1
+      }
     }
   }
 

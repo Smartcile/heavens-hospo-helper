@@ -26,3 +26,5 @@ Use the real values from the screenshot plan:
 For `admin` or `worker` screenshots, `AGENT_SCREENSHOT_EMAIL` and `AGENT_SCREENSHOT_PASSWORD` must be set in `apps/web/.env.local`.
 
 Report the screenshot URL and the issue comment URL. Do not change code.
+
+If I ask for a live look rather than a captured image, use the Chrome extension (`browse` tools) instead — see WORKFLOW.md → "Browser checks on request". Open the worktree's server on a spare port (never 3000), stay read-only unless I say otherwise, and close the tabs afterwards.

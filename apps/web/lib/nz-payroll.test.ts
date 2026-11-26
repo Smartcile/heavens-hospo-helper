@@ -8,6 +8,7 @@ import {
   kiwiSaverFor,
   studentLoanFor,
   classifyBreakMinutes,
+  sumBreakSplit,
   payrunForStaff,
   STUDENT_LOAN_THRESHOLD,
   TAX_CODES,
@@ -132,6 +133,23 @@ describe('break classification', () => {
   })
 })
 
+describe('sumBreakSplit', () => {
+  it('sums the split across breakdown lines', () => {
+    expect(
+      sumBreakSplit([
+        { paidBreakMinutes: 10, unpaidBreakMinutes: 30 },
+        { paidBreakMinutes: 10, unpaidBreakMinutes: 30 },
+      ])
+    ).toEqual({ paidMinutes: 20, unpaidMinutes: 60 })
+  })
+
+  it('treats legacy or malformed rows as zero', () => {
+    expect(sumBreakSplit([{ breaksMinutes: 30 }])).toEqual({ paidMinutes: 0, unpaidMinutes: 0 })
+    expect(sumBreakSplit(null)).toEqual({ paidMinutes: 0, unpaidMinutes: 0 })
+    expect(sumBreakSplit([null, 'x', { paidBreakMinutes: 'oops' }])).toEqual({ paidMinutes: 0, unpaidMinutes: 0 })
+  })
+})
+
 describe('payrunForStaff', () => {
   it('computes ordinary hours × rate with PAYE, ACC, KiwiSaver and net pay', () => {
     const r = payrunForStaff([session('2026-08-10', 9, 17)], staff, settings)
@@ -150,10 +168,54 @@ describe('payrunForStaff', () => {
     expect(r.employerCost).toBeCloseTo(200 + 6, 2)
   })
 
-  it('deducts breaks from paid time', () => {
+  it('treats a 30-min clocked break as an unpaid meal break', () => {
     const r = payrunForStaff([session('2026-08-10', 9, 17, 30)], staff, settings)
     expect(r.totalHours).toBe(7.5)
     expect(r.grossPay).toBeCloseTo(187.5, 2)
+    expect(r.paidBreakMinutes).toBe(0)
+    expect(r.unpaidBreakMinutes).toBe(30)
+  })
+
+  it('keeps a short rest break paid (8h shift with a 10-min break)', () => {
+    const r = payrunForStaff([session('2026-08-10', 9, 17, 10)], staff, settings)
+    expect(r.totalHours).toBe(8)
+    expect(r.grossPay).toBeCloseTo(200, 2)
+    expect(r.paidBreakMinutes).toBe(10)
+    expect(r.unpaidBreakMinutes).toBe(0)
+    expect(r.breakdown[0]).toMatchObject({ breaksMinutes: 10, paidBreakMinutes: 10, unpaidBreakMinutes: 0 })
+  })
+
+  it('splits a rest + meal break on a long shift (40m = 10 paid / 30 unpaid)', () => {
+    const r = payrunForStaff([session('2026-08-10', 9, 17, 40)], staff, settings)
+    expect(r.totalHours).toBe(7.5)
+    expect(r.paidBreakMinutes).toBe(10)
+    expect(r.unpaidBreakMinutes).toBe(30)
+    expect(r.breakdown[0]).toMatchObject({ hours: 7.5, paidBreakMinutes: 10, unpaidBreakMinutes: 30 })
+  })
+
+  it('keeps the surplus beyond the entitlement unpaid and never negative', () => {
+    // 8h shift: entitlement is 2 rest (20m) + 1 meal (30m). A 90m clock is
+    // 30m meal first, then 20m rest, leaving 40m of unpaid surplus.
+    const r = payrunForStaff([session('2026-08-10', 9, 17, 90)], staff, settings)
+    expect(r.totalHours).toBe(6.83)
+    expect(r.paidBreakMinutes).toBe(20)
+    expect(r.unpaidBreakMinutes).toBe(70)
+
+    // Breaks longer than the shift clamp to the span; still 20 paid / 460 unpaid.
+    const clamped = payrunForStaff([session('2026-08-10', 9, 17, 900)], staff, settings)
+    expect(clamped.totalHours).toBe(0.33)
+    expect(clamped.paidBreakMinutes).toBe(20)
+    expect(clamped.unpaidBreakMinutes).toBe(460)
+    expect(clamped.totalHours).toBeGreaterThanOrEqual(0)
+  })
+
+  it('pins the meal-first rule for a break under the meal entitlement (25m = 0 paid / 25 unpaid)', () => {
+    // classifyBreakMinutes takes the meal minutes first, so 25m on an 8h shift
+    // is 0 paid — changing that order is a policy decision, not this fix.
+    const r = payrunForStaff([session('2026-08-10', 9, 17, 25)], staff, settings)
+    expect(r.totalHours).toBe(7.58)
+    expect(r.paidBreakMinutes).toBe(0)
+    expect(r.unpaidBreakMinutes).toBe(25)
   })
 
   it('pays public holidays at 1.5x and owes an alternative day', () => {
@@ -219,6 +281,23 @@ describe('payrunForStaff', () => {
     expect(r.ordinaryHours).toBe(40)
     expect(r.overtimeHours).toBe(0)
     expect(r.publicHolidayHours).toBe(8)
+  })
+
+  it('counts break minutes once across the overtime carve', () => {
+    const ot = { ...settings, overtimeEnabled: true, overtimeHoursPerWeek: 7, overtimeRate: 1.5 }
+    // Two 8h days, 40m clocked breaks each → 10 paid / 30 unpaid, 450 paid min each.
+    const sessions = [session('2026-08-10', 9, 17, 40), session('2026-08-11', 9, 17, 40)]
+    const r = payrunForStaff(sessions, staff, ot)
+    expect(r.ordinaryHours).toBe(7)
+    expect(r.overtimeHours).toBe(8)
+    expect(r.totalHours).toBe(15)
+    // Each session's split is carried on exactly one line.
+    expect(r.paidBreakMinutes).toBe(20)
+    expect(r.unpaidBreakMinutes).toBe(60)
+    const linePaid = r.breakdown.reduce((s, l) => s + l.paidBreakMinutes, 0)
+    const lineUnpaid = r.breakdown.reduce((s, l) => s + l.unpaidBreakMinutes, 0)
+    expect(linePaid).toBe(r.paidBreakMinutes)
+    expect(lineUnpaid).toBe(r.unpaidBreakMinutes)
   })
 
   it('skips sessions without a valid clock-out and clamps breaks to duration', () => {

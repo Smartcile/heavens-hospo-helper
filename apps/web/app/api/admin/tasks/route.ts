@@ -8,6 +8,7 @@ import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 import { syncTaskLists } from '@/lib/task-lists.server'
 import { sanitiseRichText } from '@/lib/rich-text'
 import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
+import { parseDueDate } from '@/lib/custom-tasks'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -119,10 +120,20 @@ export async function POST(req: NextRequest) {
     requireOutcomeReason,
     parentTaskId,
     checklistIds,
+    isOneOff,
+    dueDate,
+    rolloverEnabled,
+    isThread,
   } = body
 
   if (!title?.trim() || !venueId) {
     return NextResponse.json({ error: 'Title and venueId are required' }, { status: 400 })
+  }
+
+  // Ad-hoc / one-off fields. `dueDate` is a date-only, venue-local calendar day.
+  const due = parseDueDate(dueDate)
+  if (!due.ok) {
+    return NextResponse.json({ error: 'INVALID DUE DATE' }, { status: 400 })
   }
 
   const listIds: string[] = Array.isArray(checklistIds) ? [...new Set(checklistIds as string[])] : []
@@ -191,6 +202,10 @@ export async function POST(req: NextRequest) {
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       parentTaskId: parentId,
       subtaskOrder,
+      isOneOff: !!isOneOff,
+      dueDate: due.value,
+      rolloverEnabled: !!rolloverEnabled,
+      isThread: !!isThread,
       status: status ?? 'ACTIVE',
       hsCategory: hsCategory ?? null,
       linkedItemId: linkedItemId || null,
