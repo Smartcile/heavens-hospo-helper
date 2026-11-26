@@ -1084,8 +1084,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     const first = rows[0]
     const dates = rows.map((r) => r.date).sort()
     const rangeLabel = dates[0] === dates[dates.length - 1]
-      ? formatDateDMY(dates[0])
-      : `${formatDateDMY(dates[0])} → ${formatDateDMY(dates[dates.length - 1])}`
+      ? formatDateDayDMY(dates[0])
+      : `${formatDateDayDMY(dates[0])} → ${formatDateDayDMY(dates[dates.length - 1])}`
     return (
       <div key={key} className="border border-grey-mid p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1179,7 +1179,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                   locked ? 'border-danger text-danger' : past ? 'border-grey-mid text-grey-light' : 'border-grey-mid text-white'
                 }`}
               >
-                {formatDateDMY(d)}
+                {formatDateDayDMY(d)}
                 {locked && <span className="text-danger">LOCKED</span>}
                 {past && <span className="text-grey-light">PAST</span>}
               </span>

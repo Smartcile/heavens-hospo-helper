@@ -5,6 +5,7 @@ import {
   approvalLockFields,
   autoComplement,
   availabilityMeta,
+  availabilitySignature,
   availabilityState,
   AVAILABILITY_WEEKDAYS,
   canWorkerEditDate,
@@ -42,9 +43,9 @@ import {
   removeWindow,
   repeatWeekly,
   requestCutoffState,
-  requestSupersedeKey,
   requestTargetDates,
   resolveAvailabilityPresets,
+  sameAvailability,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
   WORKER_EDIT_SCOPES,
@@ -52,6 +53,7 @@ import {
   spliceWindow,
   statusMeta,
   summariseSeries,
+  trimRequestTargets,
   weeksForSeries,
   windowsAreNormalised,
   windowsArePartition,
@@ -105,12 +107,128 @@ describe('requestTargetDates', () => {
   })
 })
 
-describe('requestSupersedeKey', () => {
-  it('keys a series request by series + action and a day by date + action', () => {
-    expect(requestSupersedeKey({ staffId: 'st1', seriesId: 's1', date: '2026-10-15', action: 'SET' }))
-      .toBe('st1:series:s1:SET')
-    expect(requestSupersedeKey({ staffId: 'st1', seriesId: null, date: '2026-10-15', action: 'CLEAR' }))
-      .toBe('st1:day:2026-10-15:CLEAR')
+describe('availabilitySignature / sameAvailability', () => {
+  it('treats an all-day AVAILABLE day and a full-day windowed AVAILABLE day as equal', () => {
+    const allDay = { isAllDay: true, type: 'AVAILABLE' as const, windows: [], timeOff: false }
+    const fullDay = {
+      isAllDay: false,
+      type: 'AVAILABLE' as const,
+      windows: [w('AVAILABLE', '00:00', '24:00')],
+      timeOff: false,
+    }
+    expect(availabilitySignature(allDay)).toBe(availabilitySignature(fullDay))
+    expect(sameAvailability(allDay, fullDay)).toBe(true)
+  })
+
+  it('normalises legacy partial segments against the auto-complement', () => {
+    const legacy = {
+      isAllDay: false,
+      type: 'UNAVAILABLE' as const,
+      windows: [w('AVAILABLE', '09:00', '17:00')],
+      timeOff: false,
+    }
+    const complemented = {
+      isAllDay: false,
+      type: 'UNAVAILABLE' as const,
+      windows: [
+        w('UNAVAILABLE', '00:00', '09:00'),
+        w('AVAILABLE', '09:00', '17:00'),
+        w('UNAVAILABLE', '17:00', '24:00'),
+      ],
+      timeOff: false,
+    }
+    expect(sameAvailability(legacy, complemented)).toBe(true)
+  })
+
+  it('ignores the window order and merges adjacent same-type segments', () => {
+    const split = {
+      isAllDay: false,
+      type: 'AVAILABLE' as const,
+      windows: [w('AVAILABLE', '09:00', '12:00'), w('AVAILABLE', '12:00', '17:00')],
+      timeOff: false,
+    }
+    const whole = {
+      isAllDay: false,
+      type: 'AVAILABLE' as const,
+      windows: [w('AVAILABLE', '09:00', '17:00')],
+      timeOff: false,
+    }
+    expect(sameAvailability(split, whole)).toBe(true)
+  })
+
+  it('treats a time-off flip as a change', () => {
+    const base = { isAllDay: true, type: 'UNAVAILABLE' as const, windows: [], timeOff: false }
+    expect(sameAvailability(base, { ...base, timeOff: true })).toBe(false)
+  })
+
+  it('keeps PREFERRED distinct from AVAILABLE', () => {
+    const available = { isAllDay: true, type: 'AVAILABLE' as const, windows: [], timeOff: false }
+    const preferred = { isAllDay: true, type: 'PREFERRED' as const, windows: [], timeOff: false }
+    expect(availabilitySignature(preferred)).not.toBe(availabilitySignature(available))
+    expect(sameAvailability(available, preferred)).toBe(false)
+  })
+
+  it('treats different windows and a different all-day state as changes', () => {
+    const morning = {
+      isAllDay: false,
+      type: 'AVAILABLE' as const,
+      windows: [w('AVAILABLE', '09:00', '12:00')],
+      timeOff: false,
+    }
+    const afternoon = {
+      isAllDay: false,
+      type: 'AVAILABLE' as const,
+      windows: [w('AVAILABLE', '13:00', '17:00')],
+      timeOff: false,
+    }
+    const allDayOn = { isAllDay: true, type: 'AVAILABLE' as const, windows: [], timeOff: false }
+    const allDayOff = { isAllDay: true, type: 'UNAVAILABLE' as const, windows: [], timeOff: false }
+    expect(sameAvailability(morning, afternoon)).toBe(false)
+    expect(sameAvailability(allDayOn, allDayOff)).toBe(false)
+  })
+
+  it('reports a change when there is no current entry', () => {
+    const next = { isAllDay: true, type: 'AVAILABLE' as const, windows: [], timeOff: false }
+    expect(sameAvailability(null, next)).toBe(false)
+    expect(sameAvailability(undefined, next)).toBe(false)
+  })
+
+  it('ignores notes — a comment never makes a save look changed', () => {
+    const current = { isAllDay: true, type: 'UNAVAILABLE' as const, windows: [], timeOff: false, notes: 'OLD' }
+    const next = { isAllDay: true, type: 'UNAVAILABLE' as const, windows: [], timeOff: false, notes: 'NEW' }
+    expect(sameAvailability(current, next)).toBe(true)
+  })
+})
+
+describe('trimRequestTargets', () => {
+  it('supersedes a request whose every target is covered', () => {
+    const out = trimRequestTargets({ writeDates: ['2026-10-15', '2026-10-22'], removeDates: [] }, ['2026-10-15', '2026-10-22', '2026-10-29'])
+    expect(out.superseded).toBe(true)
+    expect(out.payload).toBeNull()
+  })
+
+  it('trims a partially covered request to the remaining write and remove dates', () => {
+    const out = trimRequestTargets(
+      { writeDates: ['2026-10-15', '2026-10-22'], removeDates: ['2026-10-15', '2026-11-01'] },
+      ['2026-10-15'],
+    )
+    expect(out).toMatchObject({ superseded: false, changed: true })
+    expect(out.payload?.writeDates).toEqual(['2026-10-22'])
+    expect(out.payload?.removeDates).toEqual(['2026-11-01'])
+  })
+
+  it('leaves a request with no overlapping target untouched', () => {
+    const payload = { writeDates: ['2026-11-05'], removeDates: [] }
+    const out = trimRequestTargets(payload, ['2026-10-15'])
+    expect(out).toMatchObject({ superseded: false, changed: false })
+    expect(out.payload?.writeDates).toEqual(['2026-11-05'])
+    expect(out.payload?.removeDates).toEqual([])
+  })
+
+  it('supersedes a request that carries no plan dates', () => {
+    const out = trimRequestTargets({}, ['2026-10-15'])
+    expect(out.superseded).toBe(true)
+    expect(out.payload).toBeNull()
   })
 })
 

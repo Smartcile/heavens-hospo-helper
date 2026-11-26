@@ -111,6 +111,7 @@ export function AvailabilityDayEditor({
   onRequestUnlockSeries,
   canRequestRemoval = false,
   onRequestSeriesRemoval,
+  pendingRequest = false,
   staffId = null,
   venueId = null,
   onCommentsMutated,
@@ -145,6 +146,8 @@ export function AvailabilityDayEditor({
   /** Worker: open the series-removal request confirmation. */
   canRequestRemoval?: boolean
   onRequestSeriesRemoval?: () => void
+  /** A pending request already targets this day — saving replaces it. */
+  pendingRequest?: boolean
   onClose: () => void
 }) {
   const [isAllDay, setIsAllDay] = useState(entry ? entry.isAllDay : true)
@@ -273,6 +276,11 @@ export function AvailabilityDayEditor({
       {locked && !managerLocked && (
         <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
           CONFIRMED BY A MANAGER — CHANGES HERE ARE SENT AS AN EDIT REQUEST
+        </p>
+      )}
+      {pendingRequest && !canOverride && (
+        <p className="font-mono text-2xs uppercase text-accent border border-accent/50 bg-accent/10 px-2 py-1.5">
+          YOU HAVE A PENDING REQUEST FOR THIS DAY — SAVING REPLACES IT.
         </p>
       )}
 
@@ -559,7 +567,7 @@ export function AvailabilityDayEditor({
             disabled={busy}
             className="flex-1 h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
           >
-            {busy ? 'SAVING_' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
+            {busy ? 'SAVING_' : pendingRequest ? 'REPLACE REQUEST' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
           </button>
         )}
         {canUnlockSeries && onRequestUnlockSeries && (series || entry?.seriesId) && (

@@ -36,6 +36,8 @@ import {
   buildAvailabilityPayload,
   cancelPendingAvailability,
   clearAvailability,
+  loadPendingRequests,
+  mapEditRequest,
   markEditRequestApplied,
   planClear,
   planSet,
@@ -276,7 +278,10 @@ describe('series day detach (THIS scope)', () => {
 
 describe('saveAvailability approval rules', () => {
   it('files an edit request when an APPROVED day is touched', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
 
     const out = await saveAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: 'SWAP' },
@@ -284,13 +289,9 @@ describe('saveAvailability approval rules', () => {
     )
 
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
-    // Locked rows and confirmed block-outs / time off are protected.
+    // The current row is loaded with the fields the no-op check + protection need.
     const where = db.staffAvailability.findMany.mock.calls[0][0].where
-    expect(where.OR).toEqual([
-      { lockedAt: { not: null } },
-      { status: 'APPROVED', timeOff: true },
-      { status: 'APPROVED', type: 'UNAVAILABLE' },
-    ])
+    expect(where.date.in).toEqual([day('2026-10-15')])
     expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
     const create = db.availabilityEditRequest.create.mock.calls[0][0]
     expect(create.data.action).toBe('SET')
@@ -331,7 +332,10 @@ describe('saveAvailability approval rules', () => {
   })
 
   it('files a clear request for an approved day', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
     const out = await clearAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: null, seriesId: null, reason: null },
       gate,
@@ -343,6 +347,174 @@ describe('saveAvailability approval rules', () => {
   })
 })
 
+describe('no change, no request', () => {
+  const current = (over: Record<string, unknown> = {}) => ({
+    date: day('2026-10-15'),
+    type: 'AVAILABLE',
+    isAllDay: true,
+    startTime: null,
+    endTime: null,
+    segments: null,
+    timeOff: false,
+    status: 'APPROVED',
+    lockedAt: null,
+    ...over,
+  })
+  const availableRaw = { isAllDay: true, type: 'AVAILABLE' }
+
+  it('returns UNCHANGED and writes nothing when the values already match', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([current()])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: availableRaw, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'UNCHANGED' })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+    expect(db.staffAvailability.createMany).not.toHaveBeenCalled()
+  })
+
+  it('returns UNCHANGED before the cut-off can turn an identical save into a request', async () => {
+    const cutoffGate = { ...gate, cutoff: { day: 4, time: '17:00' }, nowMinutes: 18 * 60 }
+    db.staffAvailability.findMany.mockResolvedValueOnce([current({ date: day('2026-10-11') })])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', raw: availableRaw, repeat: null, scope: null, seriesId: null, reason: null },
+      cutoffGate,
+    )
+
+    expect(out).toMatchObject({ mode: 'UNCHANGED' })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('still files a request for a real change past the cut-off', async () => {
+    const cutoffGate = { ...gate, cutoff: { day: 4, time: '17:00' }, nowMinutes: 18 * 60 }
+    db.staffAvailability.findMany.mockResolvedValueOnce([current({ date: day('2026-10-11'), type: 'UNAVAILABLE' })])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', raw: availableRaw, repeat: null, scope: null, seriesId: null, reason: null },
+      cutoffGate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+    expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('treats a DECLINED day as a change so a worker can re-declare it', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([current({ status: 'DECLINED' })])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: availableRaw, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    expect(db.staffAvailability.updateMany).toHaveBeenCalled()
+  })
+
+  it('does not short-circuit an identical admin save (it may confirm a declaration)', async () => {
+    // Bypass never loads the current rows; the write still happens.
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: availableRaw, repeat: null, scope: null, seriesId: null, reason: null },
+      adminGate,
+    )
+
+    expect(db.staffAvailability.updateMany).toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.status).toBe('APPROVED')
+  })
+
+  it('returns UNCHANGED when clearing a day that is already empty', async () => {
+    const out = await clearAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'UNCHANGED' })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('trims a partially overlapping older request instead of superseding it', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([current({ type: 'UNAVAILABLE', timeOff: true })])
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([{
+      id: 'older', seriesId: 's1', date: day('2026-10-15'), action: 'SET',
+      payload: {
+        action: 'SET', anchor: '2026-10-15', scope: 'FROM', seriesId: 's1',
+        writeDates: ['2026-10-15', '2026-10-22'], removeDates: [],
+      },
+    }])
+
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(db.availabilityEditRequest.updateMany).not.toHaveBeenCalled()
+    const update = db.availabilityEditRequest.update.mock.calls[0][0]
+    expect(update.where.id).toBe('older')
+    expect(update.data.payload.writeDates).toEqual(['2026-10-22'])
+    // The trimmed request keeps its plan shape + series identity.
+    expect(update.data.payload.anchor).toBe('2026-10-15')
+    expect(update.data.payload.scope).toBe('FROM')
+    expect(update.data.payload.seriesId).toBe('s1')
+    expect(update.data.payload.action).toBe('SET')
+    // The NEW request's payload is not mutated by the trim of the older one.
+    const created = db.availabilityEditRequest.create.mock.calls[0][0].data.payload
+    expect(created.writeDates).toEqual(['2026-10-15'])
+    expect(created.writeDates).not.toContain('2026-10-22')
+  })
+})
+
+describe('protection predicates', () => {
+  it('protects an APPROVED time-off day even when its windows are AVAILABLE', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'AVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: { isAllDay: true, type: 'UNAVAILABLE' }, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+  })
+
+  it('protects an APPROVED UNAVAILABLE block-out even without time off', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: false, status: 'APPROVED', lockedAt: null,
+    }])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: { isAllDay: true, type: 'AVAILABLE' }, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+  })
+
+  it('does NOT protect an APPROVED AVAILABLE day without time off — the change saves directly', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'AVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: false, status: 'APPROVED', lockedAt: null,
+    }])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: { isAllDay: true, type: 'UNAVAILABLE' }, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany).toHaveBeenCalled()
+  })
+})
+
 describe('day-level locking', () => {
   const fixture = [
     { date: day('2026-10-15'), seriesEndDate: day('2026-10-29') },
@@ -351,7 +523,10 @@ describe('day-level locking', () => {
   ]
 
   it('files a request when a worker writes a locked day', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'AVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: false, status: 'APPROVED', lockedAt: new Date(),
+    }])
     const out = await saveAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
       gate,
@@ -361,7 +536,10 @@ describe('day-level locking', () => {
   })
 
   it('files a request when a worker clears a locked day', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: false, status: 'APPROVED', lockedAt: new Date(),
+    }])
     const out = await clearAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: null, seriesId: null, reason: null },
       gate,
@@ -455,7 +633,6 @@ describe('weekly request cut-off', () => {
     )
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
     expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
-    expect(db.staffAvailability.findMany).not.toHaveBeenCalled()
     expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
   })
 
@@ -477,6 +654,10 @@ describe('weekly request cut-off', () => {
   })
 
   it('files a clear request for a day past its cut-off', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-11'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: false, status: 'APPROVED', lockedAt: null,
+    }])
     const out = await clearAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', scope: null, seriesId: null, reason: null },
       cutoffGate,
@@ -568,6 +749,83 @@ describe('requestSeriesRemoval', () => {
 
     expect(out).toMatchObject({ error: 'SERIES NOT FOUND', status: 400 })
     expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('mapEditRequest', () => {
+  it('exposes every target date, not only the anchor', () => {
+    const mapped = mapEditRequest({
+      id: 'r1',
+      staffId: 'st1',
+      venueId: 'v1',
+      scope: 'FROM',
+      date: day('2026-10-15'),
+      seriesId: 's1',
+      action: 'SET',
+      payload: { writeDates: ['2026-10-15', '2026-10-22'], removeDates: ['2026-10-01'] },
+      reason: null,
+      status: 'PENDING',
+      reviewNote: null,
+      createdAt: new Date('2026-10-01T00:00:00Z'),
+    })
+
+    expect(mapped.date).toBe('2026-10-15')
+    expect(mapped.targetDates).toEqual(['2026-10-01', '2026-10-15', '2026-10-22'])
+  })
+})
+
+describe('loadPendingRequests', () => {
+  const request = (over: Record<string, unknown>) => ({
+    id: 'r',
+    staffId: 'st1',
+    venueId: 'v1',
+    scope: 'THIS',
+    date: day('2026-10-15'),
+    seriesId: null,
+    action: 'SET',
+    payload: null,
+    reason: null,
+    status: 'PENDING',
+    reviewNote: null,
+    createdAt: new Date('2026-10-01T00:00:00Z'),
+    ...over,
+  })
+
+  it('keeps a request anchored before the range when it targets a visible day', async () => {
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([
+      request({
+        id: 'earlier-anchor',
+        date: day('2026-09-01'),
+        payload: {
+          action: 'SET', anchor: '2026-09-01', scope: 'FROM',
+          writeDates: ['2026-09-01', '2026-10-16'], removeDates: [],
+        },
+      }),
+      request({
+        id: 'after-range',
+        date: day('2026-10-22'),
+        payload: { action: 'SET', anchor: '2026-10-22', scope: 'THIS', writeDates: ['2026-10-22'], removeDates: [] },
+      }),
+    ])
+
+    const out = await loadPendingRequests('st1', '2026-10-15', '2026-10-21')
+
+    expect(out.map((r) => r.id)).toEqual(['earlier-anchor'])
+    // The anchor may be before the range, so only an upper bound is applied.
+    const where = db.availabilityEditRequest.findMany.mock.calls[0][0].where
+    expect(where.date.lte).toBeInstanceOf(Date)
+    expect(where.date.gte).toBeUndefined()
+  })
+
+  it('judges a legacy request without dates by its anchor', async () => {
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([
+      request({ id: 'legacy-outside', date: day('2026-09-01'), payload: null }),
+      request({ id: 'legacy-inside', date: day('2026-10-16'), payload: null }),
+    ])
+
+    const out = await loadPendingRequests('st1', '2026-10-15', '2026-10-21')
+
+    expect(out.map((r) => r.id)).toEqual(['legacy-inside'])
   })
 })
 
@@ -745,7 +1003,10 @@ describe('availability notes', () => {
   })
 
   it('does not use the day note as the request reason when there is no worker comment', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
 
     const out = await saveAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: null },
@@ -767,7 +1028,10 @@ describe('availability notes', () => {
   })
 
   it('uses the newest WORKER_APP comment as the request reason', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
     db.availabilityComment.findFirst.mockResolvedValueOnce({ body: 'VIA TXT' })
 
     const out = await saveAvailability(
@@ -780,7 +1044,10 @@ describe('availability notes', () => {
   })
 
   it('keeps an explicit request reason ahead of the worker comment', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
 
     await saveAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: 'SWAP' },
@@ -935,12 +1202,15 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
 })
 
 describe('request superseding', () => {
-  it('supersedes an older PENDING request for the same day and action', async () => {
-    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+  it('supersedes every older PENDING request that targets the new day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{
+      date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+      startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+    }])
     db.availabilityEditRequest.findMany.mockResolvedValueOnce([
-      { id: 'old-set', seriesId: null, date: day('2026-10-15'), action: 'SET' },
-      { id: 'other-day', seriesId: null, date: day('2026-10-16'), action: 'SET' },
-      { id: 'other-action', seriesId: null, date: day('2026-10-15'), action: 'CLEAR' },
+      { id: 'old-set', seriesId: null, date: day('2026-10-15'), action: 'SET', payload: null },
+      { id: 'other-day', seriesId: null, date: day('2026-10-16'), action: 'SET', payload: null },
+      { id: 'other-action', seriesId: null, date: day('2026-10-15'), action: 'CLEAR', payload: null },
     ])
 
     const out = await saveAvailability(
@@ -950,21 +1220,24 @@ describe('request superseding', () => {
 
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
     const call = db.availabilityEditRequest.updateMany.mock.calls[0][0]
-    expect(call.where.id.in).toEqual(['old-set'])
+    expect(call.where.id.in).toEqual(['old-set', 'other-action'])
     expect(call.data).toMatchObject({ status: 'SUPERSEDED', reviewNote: 'SUPERSEDED BY A NEWER REQUEST' })
   })
 
-  it('supersedes an older PENDING series request of the same action', async () => {
+  it('supersedes every older PENDING request on the same day, whatever its series', async () => {
     db.staffAvailability.findMany
       .mockResolvedValueOnce([
         { date: day('2026-10-15'), seriesEndDate: null },
         { date: day('2026-10-22'), seriesEndDate: null },
       ])
-      .mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+      .mockResolvedValueOnce([{
+        date: day('2026-10-15'), type: 'UNAVAILABLE', isAllDay: true,
+        startTime: null, endTime: null, segments: null, timeOff: true, status: 'APPROVED', lockedAt: null,
+      }])
     db.availabilityEditRequest.findMany.mockResolvedValueOnce([
-      { id: 'old-clear', seriesId: 's1', date: day('2026-10-15'), action: 'CLEAR' },
-      { id: 'old-set', seriesId: 's1', date: day('2026-10-15'), action: 'SET' },
-      { id: 'other-series', seriesId: 's2', date: day('2026-10-15'), action: 'CLEAR' },
+      { id: 'old-clear', seriesId: 's1', date: day('2026-10-15'), action: 'CLEAR', payload: null },
+      { id: 'old-set', seriesId: 's1', date: day('2026-10-15'), action: 'SET', payload: null },
+      { id: 'other-series', seriesId: 's2', date: day('2026-10-15'), action: 'CLEAR', payload: null },
     ])
 
     const out = await clearAvailability(
@@ -974,7 +1247,7 @@ describe('request superseding', () => {
 
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
     const call = db.availabilityEditRequest.updateMany.mock.calls[0][0]
-    expect(call.where.id.in).toEqual(['old-clear'])
+    expect(call.where.id.in).toEqual(['old-clear', 'old-set', 'other-series'])
   })
 })
 

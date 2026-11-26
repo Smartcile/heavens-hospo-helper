@@ -21,10 +21,11 @@ import {
   normaliseWindows,
   occurrencesForRepeat,
   repeatWeekly,
-  requestSupersedeKey,
   requestTargetDates,
+  sameAvailability,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
+  trimRequestTargets,
   type AvailabilityCutoff,
   type AvailabilityEntry,
   type AvailabilityScope,
@@ -32,6 +33,7 @@ import {
   type AvailabilityType,
   type AvailabilityWindow,
   type Repeat,
+  type RequestPayloadWithDates,
 } from '@/lib/availability'
 import { getTodayDate } from '@/lib/utils'
 
@@ -86,6 +88,8 @@ export type PlanOutcome =
 export type SaveOutcome =
   | { mode: 'SAVED'; plan: AvailabilityPlan; skipped: string[] }
   | { mode: 'REQUEST'; requestId: string; skipped: string[] }
+  /** The submitted values are already stored — nothing written, no request. */
+  | { mode: 'UNCHANGED'; skipped: string[] }
   | { error: string; locked?: string[] }
 
 interface AvailabilityRow {
@@ -465,24 +469,74 @@ export async function planClear(
 
 // ── Execution ─────────────────────────────────────────────────────────────
 
-/** Rows a plan would touch, scoped to the staff member. A manager-locked day is
- *  always protected; otherwise only CONFIRMED block-outs / time off are — an
- *  auto-approved AVAILABLE day is informational and can always be changed. */
-async function rowsTouchedByPlan(staffId: string, plan: AvailabilityPlan) {
-  const dates = [...plan.writeDates, ...plan.removeDates]
-  if (dates.length === 0) return [] as { id: string; status: string }[]
+/** Rows a plan would touch, with the fields the no-op comparison and the
+ *  approval rule both need. A manager-locked day is always protected;
+ *  otherwise only CONFIRMED block-outs / time off are — an auto-approved
+ *  AVAILABLE day is informational and can always be changed. */
+interface PlanDateRow {
+  date: Date
+  type: string
+  isAllDay: boolean
+  startTime: string | null
+  endTime: string | null
+  segments: unknown
+  timeOff: boolean
+  status: string
+  lockedAt: Date | null
+}
+
+async function loadPlanRows(staffId: string, dates: string[]): Promise<PlanDateRow[]> {
+  const unique = [...new Set(dates.filter(Boolean))]
+  if (unique.length === 0) return []
   return prisma.staffAvailability.findMany({
-    where: {
-      staffId,
-      deletedAt: null,
-      date: { in: dates.map(utcDay) },
-      OR: [
-        { lockedAt: { not: null } },
-        { status: 'APPROVED', timeOff: true },
-        { status: 'APPROVED', type: 'UNAVAILABLE' },
-      ],
+    where: { staffId, deletedAt: null, date: { in: unique.map(utcDay) } },
+    select: {
+      date: true,
+      type: true,
+      isAllDay: true,
+      startTime: true,
+      endTime: true,
+      segments: true,
+      timeOff: true,
+      status: true,
+      lockedAt: true,
     },
-    select: { id: true, status: true },
+  })
+}
+
+function isProtectedRow(row: PlanDateRow): boolean {
+  return !!row.lockedAt || (row.status === 'APPROVED' && (row.timeOff || row.type === 'UNAVAILABLE'))
+}
+
+/**
+ * True when a plan would write exactly the availability already stored (or, for
+ * a CLEAR, remove days that are already empty). A DECLINED day is never "the
+ * same" — re-declaring after a decline must be allowed to file a new request.
+ * Series metadata is deliberately ignored: the comparison is about the day's
+ * availability, so a detach that changes nothing is rejected like any no-op.
+ */
+function planIsNoChange(plan: AvailabilityPlan, rows: PlanDateRow[]): boolean {
+  if (plan.action === 'CLEAR') {
+    if (plan.removeDates.length === 0) return false
+    const present = new Set(rows.map((r) => formatDateKey(r.date)))
+    return plan.removeDates.every((d) => !present.has(d))
+  }
+  if (!plan.availability || plan.writeDates.length === 0 || plan.removeDates.length > 0) return false
+  const byDate = new Map(rows.map((r) => [formatDateKey(r.date), r]))
+  return plan.writeDates.every((d) => {
+    const row = byDate.get(d)
+    if (!row || row.status === 'DECLINED') return false
+    return sameAvailability(
+      {
+        isAllDay: row.isAllDay,
+        type: row.type as AvailabilityType,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        windows: row.isAllDay ? [] : normaliseWindows(row.segments ?? []),
+        timeOff: row.timeOff,
+      },
+      plan.availability as AvailabilityPayload,
+    )
   })
 }
 
@@ -628,29 +682,35 @@ async function storeRequest(
     })
     reason = workerComment?.body.trim() || null
   }
-  const key = requestSupersedeKey({
-    staffId: input.staffId,
-    seriesId: plan.seriesId,
-    date: input.dateKey,
-    action: plan.action,
-  })
+  const planDates = requestTargetDates(plan)
+  const planDateSet = new Set(planDates)
 
   const request = await prisma.$transaction(async (tx) => {
-    // Collapse stacked snapshots of the same fix: a newer request for the same
-    // day+action (or series+action) retires the older PENDING ones instead of
-    // letting the queue accumulate four versions of one change.
+    // One live request per day. A newer request retires every PENDING request
+    // from the same person whose target dates it intersects: a fully covered
+    // older request becomes SUPERSEDED, a partially overlapping one is trimmed
+    // to the days the newer request does not cover (so a one-day fix cannot
+    // wipe the other nine days of a pending FROM request).
     const older = await tx.availabilityEditRequest.findMany({
       where: { staffId: input.staffId, venueId: input.venueId, status: 'PENDING', deletedAt: null },
-      select: { id: true, seriesId: true, date: true, action: true },
+      select: { id: true, date: true, payload: true },
     })
-    const supersededIds = older
-      .filter((r) => requestSupersedeKey({
-        staffId: input.staffId,
-        seriesId: r.seriesId,
-        date: formatDateKey(r.date),
-        action: r.action,
-      }) === key)
-      .map((r) => r.id)
+    const supersededIds: string[] = []
+    const trimmed: { id: string; payload: Prisma.InputJsonValue }[] = []
+    for (const row of older) {
+      const payload = (row.payload ?? null) as RequestPayloadWithDates | null
+      const targets = requestTargetDates(payload)
+      // Legacy/empty payloads have no explicit dates — their anchor is the plan.
+      const effective = targets.length > 0 ? targets : [formatDateKey(row.date)]
+      const covered = effective.filter((d) => planDateSet.has(d))
+      if (covered.length === 0) continue
+      const trim = trimRequestTargets(payload, covered)
+      if (trim.superseded) {
+        supersededIds.push(row.id)
+      } else if (trim.changed && trim.payload) {
+        trimmed.push({ id: row.id, payload: trim.payload as unknown as Prisma.InputJsonValue })
+      }
+    }
     if (supersededIds.length > 0) {
       await tx.availabilityEditRequest.updateMany({
         where: { id: { in: supersededIds } },
@@ -660,6 +720,9 @@ async function storeRequest(
           reviewNote: 'SUPERSEDED BY A NEWER REQUEST',
         },
       })
+    }
+    for (const row of trimmed) {
+      await tx.availabilityEditRequest.update({ where: { id: row.id }, data: { payload: row.payload } })
     }
     return tx.availabilityEditRequest.create({
       data: {
@@ -699,15 +762,24 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
   )
   if (!planned.ok) return { error: planned.error, locked: planned.locked }
 
-  if (!gate.bypass && planned.plan.writeDates.length + planned.plan.removeDates.length > 0) {
-    if (planPastCutoff(planned.plan, gate)) {
-      const requestId = await storeRequest(input, planned.plan)
-      return { mode: 'REQUEST', requestId, skipped: planned.skipped }
-    }
-    const approved = await rowsTouchedByPlan(input.staffId, planned.plan)
-    if (approved.length > 0) {
-      const requestId = await storeRequest(input, planned.plan)
-      return { mode: 'REQUEST', requestId, skipped: planned.skipped }
+  if (!gate.bypass) {
+    const planDates = [...planned.plan.writeDates, ...planned.plan.removeDates]
+    if (planDates.length > 0) {
+      // Server-authoritative "no change, no request": compare the plan against
+      // what is stored BEFORE filing a request or rewriting the row. Admins
+      // bypass this — an identical admin re-save still confirms a declaration.
+      const currentRows = await loadPlanRows(input.staffId, planDates)
+      if (planIsNoChange(planned.plan, currentRows)) {
+        return { mode: 'UNCHANGED', skipped: planned.skipped }
+      }
+      if (planPastCutoff(planned.plan, gate)) {
+        const requestId = await storeRequest(input, planned.plan)
+        return { mode: 'REQUEST', requestId, skipped: planned.skipped }
+      }
+      if (currentRows.some(isProtectedRow)) {
+        const requestId = await storeRequest(input, planned.plan)
+        return { mode: 'REQUEST', requestId, skipped: planned.skipped }
+      }
     }
   }
 
@@ -741,12 +813,16 @@ export async function clearAvailability(
   if (!planned.ok) return { error: planned.error, locked: planned.locked }
 
   if (!gate.bypass && planned.plan.removeDates.length > 0) {
+    // Clearing days that are already empty changes nothing.
+    const currentRows = await loadPlanRows(input.staffId, planned.plan.removeDates)
+    if (planIsNoChange(planned.plan, currentRows)) {
+      return { mode: 'UNCHANGED', skipped: planned.skipped }
+    }
     if (planPastCutoff(planned.plan, gate)) {
       const requestId = await storeRequest(input, planned.plan)
       return { mode: 'REQUEST', requestId, skipped: planned.skipped }
     }
-    const approved = await rowsTouchedByPlan(input.staffId, planned.plan)
-    if (approved.length > 0) {
+    if (currentRows.some(isProtectedRow)) {
       const requestId = await storeRequest(input, planned.plan)
       return { mode: 'REQUEST', requestId, skipped: planned.skipped }
     }
@@ -897,6 +973,7 @@ export interface EditRequestRow {
 }
 
 export function mapEditRequest(row: EditRequestRow) {
+  const payload = row.payload as AvailabilityPlan | null
   return {
     id: row.id,
     staffId: row.staffId,
@@ -904,7 +981,10 @@ export function mapEditRequest(row: EditRequestRow) {
     scope: row.scope as AvailabilityScope,
     seriesId: row.seriesId,
     action: row.action as 'SET' | 'CLEAR',
-    payload: row.payload as AvailabilityPlan | null,
+    payload,
+    /** Every day this request actually targets — the web badge lights these,
+     *  not only the anchor date. */
+    targetDates: requestTargetDates(payload),
     reason: row.reason,
     status: row.status,
     reviewNote: row.reviewNote,
@@ -1114,16 +1194,31 @@ export async function loadSeriesSummaries(staffIds: string[], seriesIds: string[
   }))
 }
 
-/** Pending edit requests for a staff member in a date range. */
+/**
+ * Pending edit requests for a staff member whose target dates intersect
+ * `[startKey, endKey]`.
+ *
+ * The anchor (`date`) is the request's first target day, so a request anchored
+ * before the visible range can still cover days inside it (a FROM/REPEAT
+ * request opened in a previous week/month). Filtering on the anchor alone hid
+ * those requests from the worker calendar, so the query only bounds the anchor
+ * to `<= end` and then keeps requests with any target inside the range.
+ */
 export async function loadPendingRequests(staffId: string, startKey: string, endKey: string) {
   const rows = await prisma.availabilityEditRequest.findMany({
     where: {
       staffId,
       status: 'PENDING',
       deletedAt: null,
-      date: { gte: utcDay(startKey), lte: new Date(`${endKey}T23:59:59Z`) },
+      date: { lte: new Date(`${endKey}T23:59:59Z`) },
     },
     orderBy: { date: 'asc' },
   })
-  return rows.map(mapEditRequest)
+  return rows
+    .map(mapEditRequest)
+    .filter((req) => {
+      // A legacy request without explicit dates is judged by its anchor.
+      const targets = req.targetDates.length > 0 ? req.targetDates : [req.date]
+      return targets.some((d) => d >= startKey && d <= endKey)
+    })
 }

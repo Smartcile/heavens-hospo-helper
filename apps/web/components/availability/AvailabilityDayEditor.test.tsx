@@ -522,4 +522,19 @@ describe('AvailabilityDayEditor', () => {
       { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
     ])
   })
+
+  it('shows the pending-request strip and a REPLACE REQUEST action', () => {
+    renderEditor({ entry: entry({ status: 'PENDING' }), pendingRequest: true })
+
+    expect(screen.getByText(/YOU HAVE A PENDING REQUEST FOR THIS DAY/)).toBeDefined()
+    expect(screen.getByText('REPLACE REQUEST')).toBeDefined()
+  })
+
+  it('hides the pending-request strip and keeps the plain SAVE label otherwise', () => {
+    renderEditor({ entry: entry({ status: 'PENDING' }) })
+
+    expect(screen.queryByText(/PENDING REQUEST FOR THIS DAY/)).toBeNull()
+    expect(screen.queryByText('REPLACE REQUEST')).toBeNull()
+    expect(screen.getByText('SAVE')).toBeDefined()
+  })
 })
