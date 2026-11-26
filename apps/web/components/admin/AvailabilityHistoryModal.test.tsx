@@ -23,7 +23,7 @@ const request = (over: Record<string, unknown> = {}) => ({
   reviewedById: 'm1',
   reviewedAt: '2026-11-13T01:00:00.000Z',
   reviewedByLabel: 'MORGAN LEE',
-  withdrawn: false,
+  deleted: false,
   createdAt: '2026-11-12T00:00:00.000Z',
   comments: [
     {
@@ -124,14 +124,25 @@ describe('AvailabilityHistoryModal', () => {
     mockFetch(history({
       requests: [
         request(),
-        request({ id: 'r2', staffName: 'WITHDRAWN WORKER', status: 'DISCARDED', withdrawn: true, reviewedByLabel: 'TAYLOR REED' }),
+        request({ id: 'r2', staffName: 'WITHDRAWN WORKER', status: 'DISCARDED', deleted: true, reviewedById: 'st1', reviewedByLabel: 'TAYLOR REED' }),
       ],
     }))
     renderModal()
 
     expect(await screen.findByText('WITHDRAWN WORKER')).toBeDefined()
-    fireEvent.click(screen.getByLabelText('SHOW WITHDRAWN / CANCELLED') as HTMLInputElement)
+    fireEvent.click(screen.getByLabelText('SHOW WITHDRAWN / REMOVED / CANCELLED') as HTMLInputElement)
     await waitFor(() => expect(screen.queryByText('WITHDRAWN WORKER')).toBeNull())
+  })
+
+  it('labels a legacy soft-deleted request REMOVED, never WITHDRAWN', async () => {
+    mockFetch(history({
+      requests: [request({ staffName: 'REMOVED WORKER', status: 'PENDING', deleted: true, reviewedByLabel: null, reviewedAt: null, reviewNote: null })],
+    }))
+    renderModal()
+
+    expect(await screen.findByText('REMOVED WORKER')).toBeDefined()
+    expect(screen.getByRole('button', { name: /REMOVED/ })).toBeDefined()
+    expect(screen.queryByRole('button', { name: /WITHDRAWN/ })).toBeNull()
   })
 
   it('filters requests by status', async () => {
@@ -148,6 +159,45 @@ describe('AvailabilityHistoryModal', () => {
 
     await waitFor(() => expect(screen.queryByText('WAITING WORKER')).toBeNull())
     expect(screen.getByRole('button', { name: /APPLIED/ })).toBeDefined()
+  })
+
+  it('sends the staff and status filters to the route as well as filtering instantly', async () => {
+    const spy = mockFetch(history({
+      requests: [
+        request(),
+        request({ id: 'r2', staffName: 'WAITING WORKER', status: 'PENDING', reviewedByLabel: null, reviewedAt: null, reviewNote: null }),
+      ],
+    }))
+    renderModal()
+
+    await screen.findByText('WAITING WORKER')
+    fireEvent.change(screen.getByLabelText('Filter history by staff'), { target: { value: 'm1' } })
+
+    // The narrow view is requested from the API (so caps cannot under-report)
+    // while the client filter has already hidden the other person's row.
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('staffId=m1'))).toBe(true)
+    })
+    expect(screen.queryByText('WAITING WORKER')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Filter history by status'), { target: { value: 'APPLIED' } })
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('status=APPLIED'))).toBe(true)
+    })
+  })
+
+  it('refetches a forward range from the server today, never the device clock', async () => {
+    const spy = mockFetch(history())
+    renderModal()
+
+    await screen.findByRole('button', { name: /APPLIED/ })
+    expect(screen.getByText(/VENUE-LOCAL TODAY 26-11-2026/)).toBeDefined()
+
+    fireEvent.change(screen.getByLabelText('Filter history by date range'), { target: { value: 'NEXT_90' } })
+
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('from=2026-11-26&to=2027-02-24'))).toBe(true)
+    })
   })
 
   it('shows cancelled declaration days with their review and lock stamps', async () => {

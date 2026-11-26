@@ -74,8 +74,10 @@ export async function GET(req: NextRequest) {
 
   const staffId = params.get('staffId')
   if (staffId) {
+    // Venue scope is the gate — the picker deliberately offers departed staff
+    // so their past declarations/requests stay filterable.
     const staff = await prisma.staff.findFirst({
-      where: { id: staffId, venueId, deletedAt: null },
+      where: { id: staffId, venueId },
       select: { id: true },
     })
     if (!staff) return NextResponse.json({ error: 'STAFF NOT FOUND' }, { status: 404 })

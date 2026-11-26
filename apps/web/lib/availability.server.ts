@@ -957,9 +957,8 @@ export async function cancelPendingAvailability(input: {
     where: { ...where, venueId: input.venueId, deletedAt: null, status: 'PENDING', lockedAt: null },
     data: {
       deletedAt: new Date(),
-      ...(input.actorId
-        ? { reviewedById: input.actorId, reviewedAt: new Date(), reviewNote: 'CANCELLED' }
-        : {}),
+      // Status/actor stamp only — no invented note on top of the manager's action.
+      ...(input.actorId ? { reviewedById: input.actorId, reviewedAt: new Date() } : {}),
     },
   })
   return result.count
@@ -1001,8 +1000,6 @@ export function mapEditRequest(row: EditRequestRow) {
     reviewNote: row.reviewNote,
     reviewedById: row.reviewedById ?? null,
     reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
-    /** Set on a worker withdrawal — the history popup badges it WITHDRAWN. */
-    withdrawn: !!row.deletedAt,
     createdAt: row.createdAt.toISOString(),
   }
 }

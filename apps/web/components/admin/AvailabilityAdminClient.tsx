@@ -21,6 +21,7 @@ import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from 
 import { AvailabilityHistoryModal } from '@/components/admin/AvailabilityHistoryModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
+import { describeHistoryRequest } from '@/lib/availability-history'
 import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { dateKeysBetween } from '@/lib/calendar'
@@ -122,15 +123,9 @@ interface EditorTarget {
 }
 
 function payloadSummary(req: AdminEditRequest): string {
-  if (req.action === 'CLEAR') {
-    if (req.scope === 'FROM') return 'REMOVE SERIES FROM THIS DAY'
-    if (req.scope === 'ALL') return 'REMOVE WHOLE SERIES'
-    return 'CLEAR THIS DAY'
-  }
-  const av = req.payload?.availability
-  if (!av) return '—'
-  if (av.isAllDay) return `ALL DAY ${av.type}`
-  return describeWindows(av.windows, false, av.type)
+  // Single wording authority — the history popup uses the same helper, so the
+  // approvals queue and the audit view cannot drift.
+  return describeHistoryRequest(req)
 }
 
 export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, canEdit = true }: {

@@ -11,6 +11,7 @@ import {
   historyRequestStatus,
   historyStatusMeta,
   historySummary,
+  SERIES_DELETED_NOTE,
   sortHistoryDays,
   sortHistoryRequests,
   type AvailabilityHistoryComment,
@@ -41,19 +42,48 @@ const request = (over: Partial<HistoryRequestLike> = {}): HistoryRequestLike => 
 describe('history request status', () => {
   it('labels every stored status', () => {
     for (const status of AVAILABILITY_HISTORY_STATUSES) {
-      if (status === 'WITHDRAWN') continue
-      expect(historyRequestStatus({ status, withdrawn: false })).toBe(status)
+      if (status === 'WITHDRAWN' || status === 'REMOVED') continue
+      expect(historyRequestStatus({ status, deleted: false, staffId: 'st1', reviewedById: null, reviewNote: null })).toBe(status)
       expect(historyStatusMeta(status).label).toBe(status)
     }
   })
 
-  it('shows a soft-deleted request as WITHDRAWN even though it stores DISCARDED', () => {
-    expect(historyRequestStatus({ status: 'DISCARDED', withdrawn: true })).toBe('WITHDRAWN')
+  it('shows a worker self-withdrawal as WITHDRAWN', () => {
+    expect(historyRequestStatus({
+      status: 'DISCARDED', deleted: true, staffId: 'st1', reviewedById: 'st1', reviewNote: null,
+    })).toBe('WITHDRAWN')
     expect(historyStatusMeta('WITHDRAWN').label).toBe('WITHDRAWN')
   })
 
+  it('keeps a manager dismissal DISCARDED, never WITHDRAWN', () => {
+    expect(historyRequestStatus({
+      status: 'DISCARDED', deleted: true, staffId: 'st1', reviewedById: 'm1', reviewNote: 'SERIES DELETED',
+    })).toBe('DISCARDED')
+  })
+
+  it('keeps a manager deleting their own series DISCARDED, not WITHDRAWN', () => {
+    expect(historyRequestStatus({
+      status: 'DISCARDED', deleted: true, staffId: 'm1', reviewedById: 'm1', reviewNote: SERIES_DELETED_NOTE,
+    })).toBe('DISCARDED')
+  })
+
+  it('labels a legacy soft-deleted PENDING row REMOVED, not WITHDRAWN', () => {
+    expect(historyRequestStatus({
+      status: 'PENDING', deleted: true, staffId: 'st1', reviewedById: null, reviewNote: null,
+    })).toBe('REMOVED')
+    expect(historyStatusMeta('REMOVED').label).toBe('REMOVED')
+  })
+
+  it('treats a legacy soft-deleted DISCARDED row without a reviewer as WITHDRAWN', () => {
+    expect(historyRequestStatus({
+      status: 'DISCARDED', deleted: true, staffId: 'st1', reviewedById: null, reviewNote: null,
+    })).toBe('WITHDRAWN')
+  })
+
   it('falls back to PENDING for an unknown stored status', () => {
-    expect(historyRequestStatus({ status: 'SOMETHING', withdrawn: false })).toBe('PENDING')
+    expect(historyRequestStatus({
+      status: 'SOMETHING', deleted: false, staffId: 'st1', reviewedById: null, reviewNote: null,
+    })).toBe('PENDING')
   })
 })
 
@@ -133,7 +163,9 @@ describe('filterHistoryRequests', () => {
   const rows = [
     request({ id: 'a', staffId: 'st1', status: 'APPLIED' }),
     request({ id: 'b', staffId: 'st2', status: 'PENDING' }),
-    request({ id: 'c', staffId: 'st1', status: 'DISCARDED', withdrawn: true, date: '2026-10-20', payload: { writeDates: ['2026-10-20'] } }),
+    request({ id: 'c', staffId: 'st1', status: 'DISCARDED', deleted: true, date: '2026-10-20', payload: { writeDates: ['2026-10-20'] } }),
+    // A legacy delete-series dismissal: soft-deleted with no status/reviewer stamp.
+    request({ id: 'd', staffId: 'st2', status: 'PENDING', deleted: true, date: '2026-10-21', payload: { writeDates: ['2026-10-21'] } }),
   ]
 
   it('filters by staff and status', () => {
@@ -141,14 +173,15 @@ describe('filterHistoryRequests', () => {
     expect(filterHistoryRequests(rows, { status: 'APPLIED' }).map((r) => r.id)).toEqual(['a'])
   })
 
-  it('keeps withdrawn requests by default and can hide them', () => {
-    expect(filterHistoryRequests(rows).map((r) => r.id)).toEqual(['a', 'b', 'c'])
+  it('keeps withdrawn and removed requests by default and can hide both', () => {
+    expect(filterHistoryRequests(rows).map((r) => r.id)).toEqual(['a', 'b', 'c', 'd'])
     expect(filterHistoryRequests(rows, { includeWithdrawn: false }).map((r) => r.id)).toEqual(['a', 'b'])
     expect(filterHistoryRequests(rows, { status: 'WITHDRAWN' }).map((r) => r.id)).toEqual(['c'])
+    expect(filterHistoryRequests(rows, { status: 'REMOVED' }).map((r) => r.id)).toEqual(['d'])
   })
 
   it('filters on the days the request targets', () => {
-    expect(filterHistoryRequests(rows, { from: '2026-10-18', to: '2026-10-25' }).map((r) => r.id)).toEqual(['c'])
+    expect(filterHistoryRequests(rows, { from: '2026-10-18', to: '2026-10-25' }).map((r) => r.id)).toEqual(['c', 'd'])
   })
 })
 

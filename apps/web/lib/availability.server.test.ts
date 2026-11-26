@@ -1179,7 +1179,8 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
     const data = db.staffAvailability.updateMany.mock.calls[0][0].data
     expect(data.reviewedById).toBe('m1')
     expect(data.reviewedAt).toBeInstanceOf(Date)
-    expect(data.reviewNote).toBe('CANCELLED')
+    // Status/actor only — no synthetic review note.
+    expect(data).not.toHaveProperty('reviewNote')
   })
 
   it('cancels a whole pending series when no ids are given', async () => {

@@ -126,4 +126,14 @@ describe('GET /api/admin/availability/history', () => {
     expect(res.status).toBe(404)
     expect(loadHistory).not.toHaveBeenCalled()
   })
+
+  it('accepts a departed staff member so their history stays filterable', async () => {
+    db.staff.findFirst.mockResolvedValueOnce({ id: 'gone' })
+    const res = await GET(req('staffId=gone&from=2026-10-01&to=2026-10-31'))
+
+    expect(res.status).toBe(200)
+    // Venue scope is the gate — a soft-deleted person is still in the venue.
+    expect(db.staff.findFirst).toHaveBeenCalledWith({ where: { id: 'gone', venueId: 'v1' }, select: { id: true } })
+    expect(loadHistory).toHaveBeenCalledWith(expect.objectContaining({ staffId: 'gone' }))
+  })
 })

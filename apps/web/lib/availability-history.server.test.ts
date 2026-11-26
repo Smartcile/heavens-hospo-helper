@@ -12,7 +12,7 @@ const { db } = vi.hoisted(() => ({
 
 vi.mock('@hospo-ops/db', () => ({ prisma: db, Prisma: { DbNull: null } }))
 
-import { HISTORY_REQUEST_CAP, loadAvailabilityHistory } from '@/lib/availability-history.server'
+import { HISTORY_COMMENT_CAP, HISTORY_REQUEST_CAP, loadAvailabilityHistory } from '@/lib/availability-history.server'
 
 const day = (key: string) => new Date(`${key}T00:00:00Z`)
 
@@ -77,8 +77,18 @@ beforeEach(() => {
 })
 
 describe('loadAvailabilityHistory', () => {
-  it('returns every request status with reviewer names, including withdrawn and automatic ones', async () => {
+  it('returns every request status with reviewer names, including withdrawn, removed and automatic ones', async () => {
     db.availabilityEditRequest.findMany.mockResolvedValue([
+      // Worker withdrawal: self-stamped DISCARDED + soft delete.
+      requestRow({ id: 'withdrawn', status: 'DISCARDED', reviewedById: 'st1', reviewedAt: day('2026-10-04'), deletedAt: day('2026-10-04'), createdAt: day('2026-10-06') }),
+      // Manager dismissal (delete-series): DISCARDED, manager stamp, soft delete.
+      requestRow({
+        id: 'dismissed', status: 'DISCARDED', reviewedById: 'm1', reviewedAt: day('2026-10-04'),
+        reviewNote: 'SERIES DELETED', deletedAt: day('2026-10-04'), createdAt: day('2026-10-05'),
+      }),
+      // Legacy delete-series row: soft-deleted with no status/reviewer at all.
+      requestRow({ id: 'removed', status: 'PENDING', deletedAt: day('2026-10-04'), createdAt: day('2026-10-04') }),
+      requestRow({ id: 'superseded', status: 'SUPERSEDED', reviewedAt: day('2026-10-05'), reviewNote: 'SUPERSEDED BY A NEWER REQUEST', createdAt: day('2026-10-03') }),
       requestRow({
         id: 'applied',
         date: day('2026-09-01'),
@@ -86,17 +96,18 @@ describe('loadAvailabilityHistory', () => {
         status: 'APPLIED',
         reviewedById: 'm1',
         reviewedAt: day('2026-10-03'),
+        createdAt: day('2026-10-02'),
       }),
-      requestRow({ id: 'withdrawn', status: 'DISCARDED', reviewedById: 'st1', reviewedAt: day('2026-10-04'), deletedAt: day('2026-10-04') }),
-      requestRow({ id: 'superseded', status: 'SUPERSEDED', reviewedAt: day('2026-10-05'), reviewNote: 'SUPERSEDED BY A NEWER REQUEST' }),
     ])
 
     const out = await loadAvailabilityHistory(window)
 
-    expect(out.requests.map((r) => r.id)).toEqual(['withdrawn', 'superseded', 'applied'])
-    expect(out.requests[0]).toMatchObject({ withdrawn: true, reviewedByLabel: 'TAYLOR REED' })
-    expect(out.requests[1].reviewedByLabel).toBe('AUTOMATIC')
-    expect(out.requests[2].reviewedByLabel).toBe('MORGAN LEE')
+    expect(out.requests.map((r) => r.id)).toEqual(['withdrawn', 'dismissed', 'removed', 'superseded', 'applied'])
+    expect(out.requests[0]).toMatchObject({ deleted: true, reviewedByLabel: 'TAYLOR REED' })
+    expect(out.requests[1]).toMatchObject({ deleted: true, reviewedByLabel: 'MORGAN LEE', reviewNote: 'SERIES DELETED' })
+    expect(out.requests[2]).toMatchObject({ deleted: true, reviewedByLabel: null })
+    expect(out.requests[3].reviewedByLabel).toBe('AUTOMATIC')
+    expect(out.requests[4].reviewedByLabel).toBe('MORGAN LEE')
     // The APPLIED request is anchored in September but targets a day in range.
     expect(out.requests.some((r) => r.id === 'applied')).toBe(true)
     // A request anchored after the window cannot target inside it.
@@ -169,6 +180,21 @@ describe('loadAvailabilityHistory', () => {
     expect(out.days[0].comments).toEqual([
       expect.objectContaining({ id: 'c1', authorName: 'MORGAN LEE' }),
     ])
+    expect(out.truncated).toBe(true)
+  })
+
+  it('reports truncation when the comment cap is hit, not only the request cap', async () => {
+    db.staffAvailability.findMany.mockResolvedValue([dayRow()])
+    db.availabilityComment.findMany.mockResolvedValue(
+      Array.from({ length: HISTORY_COMMENT_CAP }, (_, i) => ({
+        id: `c${i}`, staffId: 'st1', date: day('2026-10-15'), body: 'NOTE', source: 'MANAGER',
+        authorId: 'm1', createdAt: day('2026-10-03'),
+      })),
+    )
+
+    const out = await loadAvailabilityHistory(window)
+
+    expect(out.requests).toEqual([])
     expect(out.truncated).toBe(true)
   })
 })

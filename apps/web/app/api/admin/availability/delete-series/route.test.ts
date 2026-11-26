@@ -150,7 +150,14 @@ describe('POST /api/admin/availability/delete-series', () => {
           status: 'PENDING',
           date: { in: [new Date('2026-10-08T00:00:00.000Z'), new Date('2026-10-15T00:00:00.000Z')] },
         }),
-        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        data: {
+          deletedAt: expect.any(Date),
+          // A manager removed the request with the series — never a worker withdrawal.
+          status: 'DISCARDED',
+          reviewedById: 'u1',
+          reviewedAt: expect.any(Date),
+          reviewNote: 'SERIES DELETED',
+        },
       }),
     )
   })

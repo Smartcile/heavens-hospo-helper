@@ -7,7 +7,7 @@
 // path here — APPLY / DISCARD stay in the approvals queue. A pending request
 // offers OPEN IN QUEUE, which hands the person back to the existing modal.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { CommentThread } from '@/components/ui/CommentThread'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
@@ -30,7 +30,16 @@ import {
 } from '@/lib/availability-history'
 import { formatDateDayDMY, formatDateDMY, localDayKey, shiftDay } from '@/lib/date-nav'
 
-const RANGES = [30, 90, 180, 365] as const
+const RANGES = [
+  { key: 'PAST_30', label: 'LAST 30 DAYS', from: -29, to: 0 },
+  { key: 'PAST_90', label: 'LAST 90 DAYS', from: -89, to: 0 },
+  { key: 'PAST_365', label: 'LAST 365 DAYS', from: -364, to: 0 },
+  { key: 'NEXT_90', label: 'TODAY → +90 DAYS', from: 0, to: 90 },
+  { key: 'SPAN_180', label: 'LAST 90 → NEXT 90', from: -89, to: 90 },
+] as const
+type RangeKey = (typeof RANGES)[number]['key']
+/** The API's own default window — no device clock involved. */
+const DEFAULT_RANGE: RangeKey = 'PAST_90'
 
 interface HistoryData {
   venueId: string
@@ -82,13 +91,17 @@ export function AvailabilityHistoryModal({
 }) {
   const [data, setData] = useState<HistoryData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'REQUESTS' | 'DAYS'>('REQUESTS')
   const [staffFilter, setStaffFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState<AvailabilityHistoryStatus | 'ALL'>('ALL')
-  const [rangeDays, setRangeDays] = useState<number>(90)
+  const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
+  /** Venue-local today from the server — never the device's day. */
+  const [today, setToday] = useState<string | null>(null)
   const [includeDeleted, setIncludeDeleted] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const loadedRef = useRef(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -97,28 +110,59 @@ export function AvailabilityHistoryModal({
     setExpanded(new Set())
   }, [isOpen, initialStaffId])
 
+  // Filters are sent to the route as well as applied client-side, so a narrow
+  // view cannot be under-reported by the request/comment caps. The client
+  // filter keeps the list responsive while a filter-driven refetch lands.
+  const query = useMemo(() => {
+    const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1]
+    const params = new URLSearchParams({
+      venueId,
+      includeDeleted: includeDeleted ? '1' : '0',
+    })
+    if (rangeKey !== DEFAULT_RANGE) {
+      // A forward-reaching range needs the server's today; wait for it rather
+      // than computing the window from the device clock.
+      if (!today) return null
+      params.set('from', shiftDay(today, range.from))
+      params.set('to', shiftDay(today, range.to))
+    }
+    if (staffFilter !== 'ALL') params.set('staffId', staffFilter)
+    if (statusFilter !== 'ALL') params.set('status', statusFilter)
+    return `/api/admin/availability/history?${params.toString()}`
+  }, [venueId, rangeKey, today, includeDeleted, staffFilter, statusFilter])
+
   useEffect(() => {
-    if (!isOpen || !venueId) return
+    if (!isOpen || !query) return
     let cancelled = false
-    const to = localDayKey()
-    const from = shiftDay(to, -(rangeDays - 1))
-    setLoading(true)
+    if (loadedRef.current) setRefreshing(true)
+    else setLoading(true)
     setError('')
-    fetch(`/api/admin/availability/history?venueId=${encodeURIComponent(venueId)}&from=${from}&to=${to}&includeDeleted=1`)
+    fetch(query)
       .then(async (r) => {
         const body = await r.json().catch(() => ({}))
         if (cancelled) return
         if (!r.ok) {
           setError((body.error ?? 'COULD NOT LOAD HISTORY').toUpperCase())
           setData(null)
+          loadedRef.current = false
           return
         }
         setData(body as HistoryData)
+        if (body.today) setToday(body.today)
+        loadedRef.current = true
       })
-      .catch(() => { if (!cancelled) setError('COULD NOT LOAD HISTORY') })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .catch(() => {
+        if (cancelled) return
+        setError('COULD NOT LOAD HISTORY')
+        loadedRef.current = false
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+        setRefreshing(false)
+      })
     return () => { cancelled = true }
-  }, [isOpen, venueId, rangeDays])
+  }, [isOpen, query])
 
   const requests = useMemo(
     () => (data ? sortHistoryRequests(filterHistoryRequests(data.requests ?? [], {
@@ -408,13 +452,15 @@ export function AvailabilityHistoryModal({
           <label className="flex flex-col gap-1">
             <span className="font-mono text-2xs uppercase text-grey-light">RANGE</span>
             <select
-              value={rangeDays}
-              onChange={(e) => setRangeDays(Number(e.target.value))}
+              value={rangeKey}
+              disabled={!today}
+              title={today ? 'CHANGE THE WINDOW' : 'LOADING THE VENUE DATE'}
+              onChange={(e) => setRangeKey(e.target.value as RangeKey)}
               aria-label="Filter history by date range"
-              className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+              className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white disabled:opacity-40"
             >
               {RANGES.map((r) => (
-                <option key={r} value={r}>LAST {r} DAYS</option>
+                <option key={r.key} value={r.key}>{r.label}</option>
               ))}
             </select>
           </label>
@@ -426,12 +472,22 @@ export function AvailabilityHistoryModal({
               onChange={(e) => setIncludeDeleted(e.target.checked)}
               className="accent-white"
             />
-            <span className="font-mono text-2xs uppercase text-grey-light">SHOW WITHDRAWN / CANCELLED</span>
+            <span className="font-mono text-2xs uppercase text-grey-light">SHOW WITHDRAWN / REMOVED / CANCELLED</span>
           </label>
         </div>
 
+        {data && (
+          <p className="font-mono text-2xs uppercase text-grey-light">
+            WINDOW {formatDateDMY(data.from)} → {formatDateDMY(data.to)} · VENUE-LOCAL TODAY {formatDateDMY(data.today)}
+          </p>
+        )}
+
         {error && (
           <p className="border border-danger/50 bg-danger/10 px-3 py-2 font-mono text-xs text-danger">{error}</p>
+        )}
+
+        {refreshing && !loading && (
+          <p className="font-mono text-2xs uppercase text-grey-light loading-cursor">REFRESHING…</p>
         )}
 
         {loading ? (

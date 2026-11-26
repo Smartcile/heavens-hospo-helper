@@ -36,7 +36,12 @@ export const HISTORY_COMMENT_CAP = 2000
 const utcDay = (key: string) => new Date(`${key}T00:00:00Z`)
 
 function isHistoryStatus(value: string | null | undefined): value is AvailabilityHistoryStatus {
-  return value === 'PENDING' || value === 'APPLIED' || value === 'DISCARDED' || value === 'SUPERSEDED' || value === 'WITHDRAWN'
+  return value === 'PENDING'
+    || value === 'APPLIED'
+    || value === 'DISCARDED'
+    || value === 'SUPERSEDED'
+    || value === 'WITHDRAWN'
+    || value === 'REMOVED'
 }
 
 export interface AvailabilityHistory {
@@ -139,10 +144,9 @@ export async function loadAvailabilityHistory(input: {
 
   const requestRows = requests.map((row) => {
     const base = mapEditRequest(row)
-    const withdrawn = !!row.deletedAt
     return {
       ...base,
-      withdrawn,
+      deleted: !!row.deletedAt,
       reviewedById: row.reviewedById ?? null,
       reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
       staffName: nameById.get(row.staffId) ?? 'REMOVED STAFF',
@@ -205,6 +209,8 @@ export async function loadAvailabilityHistory(input: {
     staff,
     requests: mappedRequests,
     days: mappedDays,
-    truncated: requests.length >= HISTORY_REQUEST_CAP || dayRows.length >= HISTORY_DAY_CAP,
+    truncated: requests.length >= HISTORY_REQUEST_CAP
+      || dayRows.length >= HISTORY_DAY_CAP
+      || commentRows.length >= HISTORY_COMMENT_CAP,
   }
 }

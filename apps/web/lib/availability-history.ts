@@ -17,8 +17,8 @@ import {
   type AvailabilityScope,
 } from '@/lib/availability'
 
-/** A request's display status. WITHDRAWN is the soft-deleted DISCARDED case. */
-export type AvailabilityHistoryStatus = 'PENDING' | 'APPLIED' | 'DISCARDED' | 'SUPERSEDED' | 'WITHDRAWN'
+/** A request's display status. WITHDRAWN/REMOVED are the soft-deleted cases. */
+export type AvailabilityHistoryStatus = 'PENDING' | 'APPLIED' | 'DISCARDED' | 'SUPERSEDED' | 'WITHDRAWN' | 'REMOVED'
 
 export const AVAILABILITY_HISTORY_STATUSES: AvailabilityHistoryStatus[] = [
   'PENDING',
@@ -26,6 +26,7 @@ export const AVAILABILITY_HISTORY_STATUSES: AvailabilityHistoryStatus[] = [
   'DISCARDED',
   'SUPERSEDED',
   'WITHDRAWN',
+  'REMOVED',
 ]
 
 const STATUS_META: Record<AvailabilityHistoryStatus, { label: string; badge: string }> = {
@@ -34,6 +35,7 @@ const STATUS_META: Record<AvailabilityHistoryStatus, { label: string; badge: str
   DISCARDED: { label: 'DISCARDED', badge: 'border-danger text-danger' },
   SUPERSEDED: { label: 'SUPERSEDED', badge: 'border-grey-mid text-grey-light' },
   WITHDRAWN: { label: 'WITHDRAWN', badge: 'border-grey-mid text-accent' },
+  REMOVED: { label: 'REMOVED', badge: 'border-grey-mid text-accent' },
 }
 
 /** Badge metadata for a display status. */
@@ -68,8 +70,11 @@ export interface HistoryRequestLike {
   reviewedById: string | null
   reviewedAt: string | null
   createdAt: string
-  /** Soft-deleted: the worker withdrew their own request. */
-  withdrawn?: boolean
+  /**
+   * Soft-deleted: a worker withdrawal, a manager dismissal (delete series) or
+   * a legacy dismissal with no stamp. `historyRequestStatus` says which.
+   */
+  deleted?: boolean
 }
 
 export interface AvailabilityHistoryRequest extends HistoryRequestLike {
@@ -95,14 +100,36 @@ function lookupName(nameById: ReadonlyMap<string, string>, id: string): string |
   return nameById.get(id) ?? null
 }
 
+/** The review note the delete-series route stamps when it dismisses requests. */
+export const SERIES_DELETED_NOTE = 'SERIES DELETED'
+
+/** The fields needed to classify a request. */
+export type HistoryStatusSource = Pick<
+  HistoryRequestLike,
+  'status' | 'deleted' | 'staffId' | 'reviewedById' | 'reviewNote'
+>
+
 /**
- * The display status of a request. A soft-deleted request was withdrawn by the
- * worker (status DISCARDED + deletedAt); every other status is shown as stored.
+ * The display status of a request, including the soft-deleted cases.
+ *
+ * - A live row keeps its stored status.
+ * - A worker withdrawal is soft-deleted DISCARDED with the worker stamped as
+ *   the reviewer (self), so it reads WITHDRAWN.
+ * - A manager dismissal is soft-deleted DISCARDED with someone else stamped as
+ *   the reviewer, so it stays DISCARDED (with the review note saying why).
+ * - A soft-deleted row that never carried a decision (legacy delete-series
+ *   rows had only `deletedAt`) reads REMOVED — never WITHDRAWN, because that
+ *   would attribute a manager action to the worker.
  */
-export function historyRequestStatus(row: Pick<HistoryRequestLike, 'status' | 'withdrawn'>): AvailabilityHistoryStatus {
-  if (row.withdrawn) return 'WITHDRAWN'
+export function historyRequestStatus(row: HistoryStatusSource): AvailabilityHistoryStatus {
   const status = row.status as AvailabilityHistoryStatus
-  return AVAILABILITY_HISTORY_STATUSES.includes(status) ? status : 'PENDING'
+  if (!row.deleted) return AVAILABILITY_HISTORY_STATUSES.includes(status) ? status : 'PENDING'
+  if (row.status === 'DISCARDED') {
+    const managerDismissal = !!row.reviewedById
+      && (row.reviewedById !== row.staffId || row.reviewNote === SERIES_DELETED_NOTE)
+    return managerDismissal ? 'DISCARDED' : 'WITHDRAWN'
+  }
+  return 'REMOVED'
 }
 
 /**
@@ -156,7 +183,7 @@ export interface HistoryRequestFilters {
   status?: AvailabilityHistoryStatus | 'ALL' | null
   from?: string | null
   to?: string | null
-  /** Withdrawn requests stay in the history unless deliberately hidden. */
+  /** Withdrawn/removed requests stay in the history unless deliberately hidden. */
   includeWithdrawn?: boolean
 }
 
@@ -167,10 +194,10 @@ export function filterHistoryRequests<T extends HistoryRequestLike>(
 ): T[] {
   const includeWithdrawn = filters.includeWithdrawn !== false
   return rows.filter((row) => {
-    const withdrawn = historyRequestStatus(row) === 'WITHDRAWN'
-    if (withdrawn && !includeWithdrawn) return false
+    const status = historyRequestStatus(row)
+    if ((status === 'WITHDRAWN' || status === 'REMOVED') && !includeWithdrawn) return false
     if (filters.staffId && row.staffId !== filters.staffId) return false
-    if (filters.status && filters.status !== 'ALL' && historyRequestStatus(row) !== filters.status) return false
+    if (filters.status && filters.status !== 'ALL' && status !== filters.status) return false
     if (filters.from && filters.to && !historyRequestInWindow(row, filters.from, filters.to)) return false
     return true
   })
@@ -241,7 +268,7 @@ export function attachHistoryComments<T extends { staffId: string; date: string 
 
 /** Tab labels: how much history each view holds. */
 export function historySummary(
-  requests: Pick<HistoryRequestLike, 'status' | 'withdrawn'>[],
+  requests: HistoryStatusSource[],
   days: { cancelled?: boolean }[],
 ): { requests: number; pending: number; days: number; cancelled: number } {
   return {

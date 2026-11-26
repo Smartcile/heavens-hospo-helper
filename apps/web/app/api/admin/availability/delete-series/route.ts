@@ -6,6 +6,7 @@ import { getAccessibleVenueIds, getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
 import { formatDateKey } from '@/lib/scheduling'
 import { clearAvailability, parseScope, unlockSeriesAvailability } from '@/lib/availability.server'
+import { SERIES_DELETED_NOTE } from '@/lib/availability-history'
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -103,7 +104,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // The removed days cannot still be sitting in the approvals queue.
+  // The removed days cannot still be sitting in the approvals queue. Stamp the
+  // dismissal (not only the soft delete) so the history shows a manager removed
+  // the request with the series — never that the worker withdrew it.
   const removed = out.mode === 'SAVED' ? out.plan.removeDates : []
   if (removed.length > 0) {
     await prisma.availabilityEditRequest.updateMany({
@@ -114,7 +117,13 @@ export async function POST(req: NextRequest) {
         deletedAt: null,
         date: { in: removed.map(utcDay) },
       },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        status: 'DISCARDED',
+        reviewedById: session.user.id,
+        reviewedAt: new Date(),
+        reviewNote: SERIES_DELETED_NOTE,
+      },
     })
   }
 
