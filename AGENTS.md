@@ -66,7 +66,7 @@ hospo-ops/
 │   ├── types/                      # Shared TypeScript types/interfaces
 │   └── config/                     # Lightweight package (tailwind.config.ts migrated to CSS @theme)
 ├── .github/workflows/
-│   ├── ci.yml                      # PR gate: lint, type-check, test, Next build
+│   ├── ci.yml                      # manual check: lint, type-check, test, Next build
 │   └── docker-build.yml            # Push develop/main + v* tag: checks, builds image, pushes GHCR
 ├── apps/web/Dockerfile             # Single-stage image (node:22-alpine + openssl + ffmpeg)
 ├── apps/web/docker-entrypoint.sh   # prisma generate → migrations → db push → seed → `next start`
@@ -120,9 +120,10 @@ hot reload). Both publish port 3000, so stop one before starting the other.
 The image is built and published to `ghcr.io/smartcile/heavens-hospo-helper`
 by GitHub Actions. A push to `develop` runs the checks and pushes `:develop`;
 a push to `main` pushes `:latest` (+ `:main`); a `v*` tag pushes the semver
-image. Pull requests run the `CI` workflow (lint, type-check, tests, Next.js
-build). `scripts/agent/check.ps1` and `scripts/agent/publish.ps1` remain
-optional local fallbacks. The root `docker-compose.yml` PULLS that image —
+image. Pull requests do **not** run CI; local checks via
+`scripts/agent/check.ps1` are the gate, and `ci.yml` is manual-only
+(`gh workflow run ci.yml --ref <branch>`). `scripts/agent/publish.ps1` remains
+an optional local fallback. The root `docker-compose.yml` PULLS that image —
 nothing is built on the server.
 
 ```bash
@@ -3994,17 +3995,17 @@ resulting React #310 error ("Rendered more hooks than during the previous render
 as an unhandled render exception and fails the test.
 
 **Pre-push checklist:**
-GitHub Actions is the gate. Open the PR and let the `CI` workflow run lint,
-type-check, the full test suite and the Next.js build; fix any red check by
-pushing again (`gh pr checks --watch`). To run the same steps locally for fast
-feedback (optional), use `scripts/agent/check.ps1`.
+Local checks are the gate. Run `scripts/agent/check.ps1` (add `-Build` when the
+change could affect the Next.js build). GitHub does not gate merges: `develop`
+has no branch protection and pull requests do not run `CI`. The
+`Build and publish image` workflow re-runs lint, type-check and tests on every
+push to `develop`/`main` before it publishes, so it is the backstop.
 
 ## TEST COVERAGE
 
 Every new pure function or hook-bearing component MUST have a corresponding
-`*.test.ts` (lib) or `*.test.tsx` (component) file alongside it. GitHub Actions
-runs the suite on the PR; `scripts/agent/check.ps1` is an optional local
-pre-flight.
+`*.test.ts` (lib) or `*.test.tsx` (component) file alongside it. Run the suite
+locally with `scripts/agent/check.ps1`; that is the gate.
 
 ### Lib Files
 
@@ -4264,10 +4265,10 @@ pre-flight.
 When the user signals intent to commit and test (e.g. "I'm going to commit",
 "time to push", "ready to test on live", "let's ship this"):
 
-1. **Push and let GitHub Actions run the gate.** The `CI` workflow runs on every
-   pull request (Prisma generate, lint, type-check, the full test suite and the
-   Next.js build). Fix red checks by pushing again; watch with
-   `gh pr checks --watch`. Do not run a local build.
+1. **Run the local gate.** `scripts/agent/check.ps1` runs Prisma generate, lint,
+   type-check and the full test suite (add `-Build` for the Next.js build). Pull
+   requests do not run `CI`, and `ci.yml` is manual-only
+   (`gh workflow run ci.yml --ref <branch>`).
 
 2. **The image build is automatic.** Merging/pushing to `develop` builds and
    pushes `:develop` via `Build and publish image`; `main` gets `:latest`.
@@ -4293,14 +4294,19 @@ When the user signals intent to commit and test (e.g. "I'm going to commit",
    during testing. Only write to it at the start of a new session or when
    generating a fresh checklist for a new round of changes.
 
-4. **Update the docs** (AGENTS.md, README.md, NAVIGATION.md, MENUS.md) to reflect
-   any new models, API routes, design conventions, or feature phases.
+4. **Docs are single-writer.** Do NOT edit `AGENTS.md` in a feature PR - every
+   PR appending to the same long file is what made merges conflict. Put the note
+   in the issue comment (the handoff); the orchestrator appends it to `AGENTS.md`
+   on `develop` after the merge. `README.md`, `NAVIGATION.md` and `MENUS.md` are
+   still updated in the PR that changes the behaviour they describe.
    (`ROADMAP.md` / `ECOSYSTEM.md` no longer exist — `scripts/check-docs.mjs`
    should be updated to drop them.)
 
-5. **GitHub Actions CI** — automatic on PRs and on pushes to `develop`/`main`
-   (plus `v*` tags). Do not run a local build. If a workflow file changed in this
-   session, flag it.
+5. **Checks** - run `scripts/agent/check.ps1` before shipping; that is the gate.
+   Pull requests do not trigger `CI` (manual-only via
+   `gh workflow run ci.yml --ref <branch>`). The image workflow re-runs
+   lint/type-check/tests on every push to `develop`/`main`. If a workflow file
+   changed in this session, flag it.
 
 ## WHAT NOT TO DO
 

@@ -1,14 +1,15 @@
 name: CI
 
-# The pull-request gate. Everything (lint, type-check, tests and the Next.js
-# production build) runs here, in GitHub Actions — not on the developer machine.
+# Manual check. Lint, type-check, the full test suite and the Next.js
+# production build run here only when triggered by hand (Actions tab, or
+# `gh workflow run ci.yml --ref <branch>`). Pull requests do NOT run this
+# automatically - local checks via scripts/agent/check.ps1 are the gate.
 # Image builds run in docker-build.yml when a branch is pushed to develop/main
-# or a v* tag is pushed.
+# or a v* tag is pushed, and that job still runs lint/type-check/tests
+# before it publishes an image.
 
 on:
-  pull_request:
-    branches: [develop, main]
-  workflow_dispatch: {} # lets you trigger a check manually from the Actions tab
+  workflow_dispatch: {} # manual only - no automatic pull-request runs
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
