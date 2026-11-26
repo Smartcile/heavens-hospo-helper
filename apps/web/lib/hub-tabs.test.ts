@@ -26,11 +26,13 @@ describe('hub-tabs', () => {
     expect(TEAM_TABS.map((t) => t.id)).toEqual(['staff', 'roster', 'availability', 'clocks', 'breaches', 'payroll'])
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways', 'status'])
-    // Floor plans moved to Events → Rooms & Plans; FILES and UPDATES are admin-only.
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'uoms', 'suppliers', 'qrcodes', 'swiftpos', 'ftp', 'files', 'updates'])
+    // Floor plans moved to Events → Rooms & Plans; ROOMS lives in Settings;
+    // FILES and UPDATES are admin-only.
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'rooms', 'uoms', 'suppliers', 'qrcodes', 'swiftpos', 'ftp', 'files', 'updates'])
     expect(EVENTS_TABS.map((t) => t.id)).toContain('rooms')
     expect(resolveTab(EVENTS_TABS, 'rooms', null)).toEqual({ tab: 'rooms', sub: 'table-plans' })
-    expect(resolveTab(EVENTS_TABS, 'rooms', 'rooms')).toEqual({ tab: 'rooms', sub: 'rooms' })
+    // The ROOMS sub-tab moved to Settings — a legacy URL falls back safely.
+    expect(resolveTab(EVENTS_TABS, 'rooms', 'rooms')).toEqual({ tab: 'rooms', sub: 'table-plans' })
   })
 
   it('COMPLIANCE has the Chomp-style tab set', () => {

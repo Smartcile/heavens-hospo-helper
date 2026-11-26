@@ -109,7 +109,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 // Removing an area keeps its calendars alive: they stay as standalone
 // (unassigned) feeds and keep syncing, and its events fall back to LOCATION /
-// floor-plan matching on the roster.
+// floor-plan matching on the roster. `roomDismissed` stops the boot migration
+// from re-creating the room from those feeds — deleting a room sticks.
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -123,7 +124,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   await prisma.$transaction([
     prisma.calendarFeed.updateMany({
       where: { areaId: area.id, deletedAt: null },
-      data: { areaId: null },
+      data: { areaId: null, roomDismissed: true },
     }),
     prisma.calendarEvent.updateMany({
       where: { areaId: area.id, deletedAt: null },

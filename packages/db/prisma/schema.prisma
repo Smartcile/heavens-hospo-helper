@@ -1358,6 +1358,9 @@ model CalendarFeed {
   isActive     Boolean        @default(true)
   lastSyncedAt DateTime?
   notes        String?
+  // A manager removed this feed's room (or deliberately left it unassigned).
+  // The boot area migration must never re-infer a room for it.
+  roomDismissed Boolean       @default(false)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   deletedAt    DateTime?

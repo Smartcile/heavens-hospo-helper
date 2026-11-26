@@ -11,7 +11,6 @@ import { BlockLibraryPanel } from '@/components/admin/BlockLibraryPanel'
 import { EnquiriesPanel } from '@/components/admin/EnquiriesPanel'
 import { PipelinePanel } from '@/components/admin/PipelinePanel'
 import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
-import { RoomsPanel } from '@/components/admin/RoomsPanel'
 import { RoomSetupsPanel } from '@/components/admin/RoomSetupsPanel'
 
 interface EventsClientProps {
@@ -87,7 +86,19 @@ export function EventsClient({ role, sessionVenueId, defaultVenueId, grantedArea
           />
         )}
         {tab === 'library' && <BlockLibraryPanel {...venueProps} />}
-        {tab === 'rooms' && sub === 'rooms' && <RoomsPanel venueId={venueId} />}
+        {tab === 'rooms' && (
+          <div className="mb-4 border border-grey-mid p-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              ROOMS AND THEIR CALENDARS ARE MANAGED IN SETTINGS → ROOMS. THIS PAGE KEEPS TABLE PLANS AND ROOM SETUPS.
+            </p>
+            <a
+              href="/admin/settings?tab=rooms"
+              className="font-mono text-2xs uppercase text-white border border-grey-mid px-3 py-1.5 hover:border-white"
+            >
+              OPEN SETTINGS → ROOMS →
+            </a>
+          </div>
+        )}
         {tab === 'rooms' && sub === 'room-setups' && <RoomSetupsPanel venueId={venueId} />}
         {tab === 'rooms' && sub === 'table-plans' && (
           <FloorPlansClient role={role} venueId={sessionVenueId} />

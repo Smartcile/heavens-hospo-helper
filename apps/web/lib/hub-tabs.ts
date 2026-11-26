@@ -106,6 +106,7 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'general', label: 'GENERAL' },
   { id: 'venue', label: 'VENUE SETUP' },
   { id: 'structure', label: 'STRUCTURE' },
+  { id: 'rooms', label: 'ROOMS' }, // Areas + their calendars — see SettingsClient
   { id: 'uoms', label: 'UNITS OF MEASURE' },
   { id: 'suppliers', label: 'SUPPLIERS' },
   { id: 'qrcodes', label: 'QR CODES' },
@@ -139,8 +140,10 @@ export const EVENTS_TABS: TabDef[] = [
     defaultSub: 'table-plans',
     subTabs: [
       { id: 'table-plans', label: 'TABLE PLANS' },
-      { id: 'rooms', label: 'ROOMS' },
       { id: 'room-setups', label: 'ROOM SETUPS' },
+      // Rooms themselves moved to Settings → ROOMS (issue #190). A legacy
+      // ?sub=rooms URL falls back to TABLE PLANS; the ROOMS link lives in the
+      // tab body.
     ],
   },
 ]

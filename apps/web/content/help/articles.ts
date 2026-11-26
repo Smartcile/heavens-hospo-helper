@@ -369,9 +369,9 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
     sortOrder: 210,
     bodyHtml: [
       '<h2>Rooms &amp; plans</h2>',
-      '<p>Everything about the physical venue lives in <strong>Events → Rooms &amp; Plans</strong>.</p>',
-      '<ul><li><strong>TABLE PLANS</strong> — draw walls, doors, sections and tables to scale. Add furniture from inventory, snap tables together and save named setups.</li><li><strong>ROOMS</strong> — your event spaces (function rooms, bar, terrace) and the calendars that import their events.</li><li><strong>ROOM SETUPS</strong> — every named setup across all plans. Link each to a room and edit its pax, style, notes and photos.</li></ul>',
-      '<p>The old <code>/admin/floorplan</code> link now opens this tab.</p>',
+      '<p><strong>Events → Rooms &amp; Plans</strong> holds the physical venue layout. <strong>Rooms</strong> themselves now live in <strong>Settings → ROOMS</strong>.</p>',
+      '<ul><li><strong>TABLE PLANS</strong> — draw walls, doors, sections and tables to scale. Add furniture from inventory, snap tables together and save named setups.</li><li><strong>ROOM SETUPS</strong> — every named setup across all plans. Link each to a room and edit its pax, style, notes and photos.</li><li><strong>Settings → ROOMS</strong> — your event spaces (function rooms, bar, terrace) and the calendars that import their events. Rooms are a compact table with one editor per room; a calendar is attached to a room or deliberately left UNASSIGNED, and it never creates a room by itself. The same tab flags rooms whose names look like calendar identifiers so you can re-home or remove them.</li></ul>',
+      '<p>The old <code>/admin/floorplan</code> link now opens Events → Rooms &amp; Plans → TABLE PLANS.</p>',
     ].join(''),
   },
   {

@@ -80,8 +80,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       })
       if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })
       data.areaId = body.areaId
+      data.roomDismissed = false
     } else {
+      // Explicitly unassigned — remember it so the boot migration never
+      // re-creates a room from this feed.
       data.areaId = null
+      data.roomDismissed = true
     }
   }
 

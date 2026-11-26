@@ -5,7 +5,9 @@
 // link, a webcal:// link or any .ics URL) and one row is created per actual
 // calendar, so the event roster can group imported events by room.
 
-import { googleEmbedToIcal } from '@/lib/ical'
+// Relative (not the `@/` alias) so the boot area migration in packages/db can
+// import this pure helper too.
+import { googleEmbedToIcal } from './ical'
 
 export type FeedSource = 'GOOGLE' | 'ICAL'
 
