@@ -2735,6 +2735,12 @@ model FloorPlan {
   roomDepth Float     @default(1500) // real-world cm
   gridUnit  Float     @default(50) // snap grid in cm
   zones     Json? // section zone rectangles [{id,x,y,w,h,sectionId}]
+  // Scaled reference-image underlay (editor only; never shown outside the builder)
+  backgroundImageUrl String? // uploaded drawing under the plan
+  backgroundOpacity  Float   @default(0.35)
+  backgroundOffsetX  Float   @default(0) // cm from the room's left edge
+  backgroundOffsetY  Float   @default(0) // cm from the room's top edge
+  backgroundScale    Float   @default(1) // cm per image pixel
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

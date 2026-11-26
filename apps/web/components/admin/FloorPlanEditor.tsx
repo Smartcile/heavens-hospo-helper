@@ -6,6 +6,16 @@ import { Panel } from '@/components/ui/Panel'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Combobox } from '@/components/ui/Combobox'
+import { ImagePicker } from '@/components/ui/ImagePicker'
+import { FloorplanCalibrationPanel } from '@/components/admin/FloorplanCalibrationPanel'
+import {
+  calibrateUnderlay,
+  formatUnderlayScale,
+  normaliseUnderlay,
+  roomToImage,
+  type UnderlayPoint,
+  type UnderlayState,
+} from '@/lib/floorplan-underlay'
 import { computeSectionSummary, type ElementData } from '@/components/admin/floorplan-elements'
 import type { SetupItemInput, FurnitureView } from '@hospo-ops/types'
 import { FurniturePalette, FURNITURE_DRAG_PREFIX } from '@/components/admin/FurniturePalette'
@@ -100,6 +110,27 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [showDimensions, setShowDimensions] = useState(false)
   const [textScale, setTextScale] = useState(1)
 
+  // Room dimensions are held locally as well as saved, so calibration and the
+  // top-bar APPLY are visible to the canvas immediately (it reads these, not the
+  // `plan` prop, which only changes when the parent reloads).
+  const [planDims, setPlanDims] = useState({
+    roomWidth: plan.roomWidth,
+    roomDepth: plan.roomDepth,
+    gridUnit: plan.gridUnit,
+  })
+
+  // ── Reference image underlay (editor only) ──
+  const [underlay, setUnderlay] = useState<UnderlayState>(normaliseUnderlay(null))
+  const [underlayVisible, setUnderlayVisible] = useState(true)
+  const [underlayLocked, setUnderlayLocked] = useState(true)
+  const [underlayDirty, setUnderlayDirty] = useState(false)
+  const [bgImageSize, setBgImageSize] = useState<{ width: number; height: number } | null>(null)
+  const [scaleInput, setScaleInput] = useState(normaliseUnderlay(null).scale.toString())
+  const [calibrationOpen, setCalibrationOpen] = useState(false)
+  const [calibrationPoints, setCalibrationPoints] = useState<UnderlayPoint[]>([])
+  const [calibrationDistance, setCalibrationDistance] = useState('')
+  const [calibrationError, setCalibrationError] = useState('')
+
   // ── Setup layer state ──
   type SetupRow = {
     id: string
@@ -187,6 +218,101 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   /** Edit one zone from the inspector; keeps the unsaved indicator honest. */
   function patchZone(id: string, patch: Partial<SectionZone>) {
     updateZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
+  }
+
+  // ── Reference image underlay ──
+
+  /** Change underlay settings and flag the plan as unsaved. */
+  function patchUnderlay(patch: Partial<UnderlayState>) {
+    setUnderlay((prev) => normaliseUnderlay({ ...prev, ...patch }))
+    setUnderlayDirty(true)
+    setDirty(true)
+    setLastAction('IMAGE UNDERLAY')
+  }
+
+  function handleUnderlayImage(url: string | null) {
+    // Replacing keeps the calibration; removing keeps the geometry.
+    if (url !== underlay.imageUrl) setBgImageSize(null)
+    if (url) setUnderlayVisible(true)
+    patchUnderlay({ imageUrl: url })
+  }
+
+  function openCalibration() {
+    if (!underlay.imageUrl) {
+      pushToast('ADD A REFERENCE IMAGE FIRST.', 'error')
+      return
+    }
+    setUnderlayVisible(true)
+    setCalibrationOpen(true)
+    setCalibrationPoints([])
+    setCalibrationDistance('')
+    setCalibrationError('')
+  }
+
+  function handleCalibrationPoint(x: number, y: number) {
+    // A third click starts a fresh measurement rather than being ignored.
+    setCalibrationPoints((prev) => (prev.length >= 2 ? [{ x, y }] : [...prev, { x, y }]))
+    setCalibrationError('')
+  }
+
+  function applyCalibration() {
+    if (!bgImageSize) { setCalibrationError('IMAGE IS STILL LOADING.'); return }
+    if (calibrationPoints.length < 2) { setCalibrationError('CLICK TWO POINTS ON THE IMAGE.'); return }
+    const real = parseFloat(calibrationDistance)
+    if (!Number.isFinite(real) || real <= 0) { setCalibrationError('ENTER A REAL DISTANCE IN CM.'); return }
+
+    const [p1, p2] = calibrationPoints
+    const result = calibrateUnderlay({
+      p1: roomToImage(p1.x, p1.y, underlay),
+      p2: roomToImage(p2.x, p2.y, underlay),
+      realDistanceCm: real,
+      imageWidthPx: bgImageSize.width,
+      imageHeightPx: bgImageSize.height,
+      offsetX: underlay.offsetX,
+      offsetY: underlay.offsetY,
+    })
+    if (!result) { setCalibrationError('CHECK THE TWO POINTS AND THE DISTANCE.'); return }
+
+    // Round to whole centimetres for a readable plan size; the room never
+    // shrinks below one grid square.
+    const roomWidth = Math.max(planDims.gridUnit, Math.round(result.roomWidth))
+    const roomDepth = Math.max(planDims.gridUnit, Math.round(result.roomDepth))
+    const nextUnderlay = normaliseUnderlay({ ...underlay, scale: result.scale })
+
+    setUnderlay(nextUnderlay)
+    setScaleInput(String(nextUnderlay.scale))
+    setPlanDims((prev) => ({ ...prev, roomWidth, roomDepth }))
+    setEditRoomW(String(roomWidth))
+    setEditRoomD(String(roomDepth))
+    setUnderlayDirty(false)
+    setCalibrationOpen(false)
+    setCalibrationPoints([])
+    setCalibrationDistance('')
+    setRebuildKey((k) => k + 1)
+
+    // Calibration is its own commit: persist the derived scale + room size now.
+    fetch(`/api/admin/floorplan/${plan.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        roomWidth,
+        roomDepth,
+        backgroundImageUrl: nextUnderlay.imageUrl,
+        backgroundOpacity: nextUnderlay.opacity,
+        backgroundOffsetX: nextUnderlay.offsetX,
+        backgroundOffsetY: nextUnderlay.offsetY,
+        backgroundScale: nextUnderlay.scale,
+      }),
+    }).then((r) => {
+      if (!r.ok) {
+        setUnderlayDirty(true)
+        pushToast('CALIBRATION APPLIED — SAVE THE PLAN TO COMMIT IT.', 'error')
+      }
+    }).catch(() => {
+      setUnderlayDirty(true)
+      pushToast('CALIBRATION APPLIED — SAVE THE PLAN TO COMMIT IT.', 'error')
+    })
+    pushToast(`CALIBRATED · ${formatUnderlayScale(result.scale)}`, 'success')
   }
 
   // ── Setup layer functions ──
@@ -482,7 +608,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       return
     }
 
-    const gu = plan.gridUnit
+    const gu = planDims.gridUnit
     const cx = snapEnabled ? snap(roomX, gu) : roomX
     const cy = snapEnabled ? snap(roomY, gu) : roomY
     const itemX = cx - f.width / 2
@@ -598,6 +724,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             nextIdCounter.current = (data.elements.length || 0) + 1
           }
           if (data.zones) setZones(data.zones)
+          if (typeof data.roomWidth === 'number' && typeof data.roomDepth === 'number') {
+            const nextDims = {
+              roomWidth: data.roomWidth,
+              roomDepth: data.roomDepth,
+              gridUnit: typeof data.gridUnit === 'number' ? data.gridUnit : plan.gridUnit,
+            }
+            setPlanDims(nextDims)
+            setEditRoomW(String(nextDims.roomWidth))
+            setEditRoomD(String(nextDims.roomDepth))
+            setEditGridUnit(String(nextDims.gridUnit))
+          }
+          setUnderlay(normaliseUnderlay({
+            imageUrl: data.backgroundImageUrl ?? null,
+            opacity: data.backgroundOpacity,
+            offsetX: data.backgroundOffsetX,
+            offsetY: data.backgroundOffsetY,
+            scale: data.backgroundScale,
+          }))
+          setScaleInput(String(normaliseUnderlay({ scale: data.backgroundScale }).scale))
+          if (data.backgroundImageUrl) setUnderlayVisible(true)
         }
       } catch (e) {
         console.error('FloorPlanEditor load error:', e)
@@ -643,7 +789,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
    * one grid unit (Shift = 1 cm). Typing in a dimension field is never hijacked.
    */
   function nudgeSelection(direction: 'up' | 'down' | 'left' | 'right', shift: boolean) {
-    const step = nudgeStep(shift, plan.gridUnit)
+    const step = nudgeStep(shift, planDims.gridUnit)
     const delta = nudgeDelta(direction, step)
 
     if (setupSelectedIds.length > 0) {
@@ -653,8 +799,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         if (!ids.has(item.id)) return item
         return {
           ...item,
-          x: clampToRoom(item.x + delta.x, item.width, plan.roomWidth),
-          y: clampToRoom(item.y + delta.y, item.depth, plan.roomDepth),
+          x: clampToRoom(item.x + delta.x, item.width, planDims.roomWidth),
+          y: clampToRoom(item.y + delta.y, item.depth, planDims.roomDepth),
         }
       }))
       return
@@ -667,8 +813,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         if (!ids.has(el.id!)) return el
         return {
           ...el,
-          x: clampToRoom(el.x + delta.x, el.width, plan.roomWidth),
-          y: clampToRoom(el.y + delta.y, el.depth, plan.roomDepth),
+          x: clampToRoom(el.x + delta.x, el.width, planDims.roomWidth),
+          y: clampToRoom(el.y + delta.y, el.depth, planDims.roomDepth),
         }
       }))
       return
@@ -679,8 +825,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setZones((prev) => prev.map((z) => z.id === selectedZoneId
         ? {
             ...z,
-            x: clampToRoom(z.x + delta.x, z.width, plan.roomWidth),
-            y: clampToRoom(z.y + delta.y, z.height, plan.roomDepth),
+            x: clampToRoom(z.x + delta.x, z.width, planDims.roomWidth),
+            y: clampToRoom(z.y + delta.y, z.height, planDims.roomDepth),
           }
         : z))
     }
@@ -690,6 +836,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (e.key === 'Escape' && armedFurnitureId) {
       e.preventDefault()
       setArmedFurnitureId(null)
+      return
+    }
+    if (e.key === 'Escape' && calibrationOpen) {
+      e.preventDefault()
+      setCalibrationOpen(false)
+      setCalibrationPoints([])
+      setCalibrationError('')
       return
     }
     // Arrow keys, Delete and Ctrl+Z belong to the text field while typing.
@@ -823,7 +976,36 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         failed = true
       }
     }
+    // Persist the reference-image settings (and any calibration offsets) in the
+    // same commit as the layout.
+    let underlayFailed = false
+    if (underlayDirty) {
+      try {
+        const ur = await fetch(`/api/admin/floorplan/${plan.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomWidth: planDims.roomWidth,
+            roomDepth: planDims.roomDepth,
+            gridUnit: planDims.gridUnit,
+            backgroundImageUrl: underlay.imageUrl,
+            backgroundOpacity: underlay.opacity,
+            backgroundOffsetX: underlay.offsetX,
+            backgroundOffsetY: underlay.offsetY,
+            backgroundScale: underlay.scale,
+          }),
+        })
+        if (ur.ok) setUnderlayDirty(false)
+        else underlayFailed = true
+      } catch {
+        underlayFailed = true
+      }
+    }
     setSaving(false)
+    if (underlayFailed) {
+      pushToast('COULD NOT SAVE THE IMAGE SETTINGS - TRY AGAIN.', 'error')
+      return
+    }
     if (failed) {
       pushToast('COULD NOT SAVE THE LAYOUT ITEMS — TRY AGAIN.', 'error')
       return
@@ -946,6 +1128,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         saving={setupSaving}
         error={setupError}
       />
+      <FloorplanCalibrationPanel
+        isOpen={calibrationOpen}
+        points={calibrationPoints}
+        distance={calibrationDistance}
+        imageSize={bgImageSize}
+        error={calibrationError}
+        onDistanceChange={setCalibrationDistance}
+        onReset={() => { setCalibrationPoints([]); setCalibrationError('') }}
+        onApply={applyCalibration}
+        onCancel={() => { setCalibrationOpen(false); setCalibrationPoints([]); setCalibrationError('') }}
+      />
       {/* ── TOP BAR ── */}
       <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black">
         <div className="flex items-center gap-3">
@@ -962,12 +1155,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
             <span className="font-mono text-xs text-grey-light">cm grid</span>
             <button onClick={async () => {
+              const nextDims = {
+                roomWidth: parseFloat(editRoomW) || planDims.roomWidth,
+                roomDepth: parseFloat(editRoomD) || planDims.roomDepth,
+                gridUnit: parseFloat(editGridUnit) || planDims.gridUnit,
+              }
               const r = await fetch(`/api/admin/floorplan/${plan.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomWidth: parseFloat(editRoomW) || plan.roomWidth, roomDepth: parseFloat(editRoomD) || plan.roomDepth, gridUnit: parseFloat(editGridUnit) || plan.gridUnit }),
+                body: JSON.stringify(nextDims),
               })
-              if (r.ok) setRebuildKey((k) => k + 1)
+              if (r.ok) {
+                // The canvas reads local dimensions, so APPLY is visible at once.
+                setPlanDims(nextDims)
+                setRebuildKey((k) => k + 1)
+              }
             }}
               className="font-mono text-xs text-success hover:text-white uppercase px-1 py-0.5 border border-success">
               APPLY
@@ -1155,7 +1357,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           }}
         >
           <FloorPlanPixiCanvas
-            roomWidth={plan.roomWidth} roomDepth={plan.roomDepth} gridUnit={plan.gridUnit}
+            roomWidth={planDims.roomWidth} roomDepth={planDims.roomDepth} gridUnit={planDims.gridUnit}
             elements={elements} zones={zones}
             selectedIds={selectedIds} snapEnabled={snapEnabled}
             sectionColours={new Map(sections.filter((s) => s.colour).map((s) => [s.id, s.colour!]))}
@@ -1189,7 +1391,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             onZoneResizeStart={() => pushHistory('RESIZED ZONE')}
             onZoneResize={(id, x, y, w, h) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y, width: w, height: h } : z))}
             onZoneDrawStart={(x, y) => {
-              const gu = plan.gridUnit
+              const gu = planDims.gridUnit
               const sx = snap(x, gu); const sy = snap(y, gu)
               zdStartRef.current = { x: sx, y: sy }
               setZoneDrawStart({ x: sx, y: sy }); setZoneDrawRect(null); setSelectedZoneId(null)
@@ -1197,7 +1399,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             onZoneDrawMove={(cx, cy) => {
               const s = zdStartRef.current
               if (!s) return
-              const gu = plan.gridUnit
+              const gu = planDims.gridUnit
               const sx = snap(cx, gu); const sy = snap(cy, gu)
               setZoneDrawRect({ x: Math.min(s.x, sx), y: Math.min(s.y, sy), w: Math.abs(sx - s.x), h: Math.abs(sy - s.y) })
             }}
@@ -1205,7 +1407,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               const s = zdStartRef.current
               zdStartRef.current = null
               if (!s) { setZoneDrawRect(null); return }
-              const gu = plan.gridUnit
+              const gu = planDims.gridUnit
               const sx = snap(cx, gu); const sy = snap(cy, gu)
               const w = Math.abs(sx - s.x); const h = Math.abs(sy - s.y)
               if (w > gu && h > gu) {
@@ -1279,6 +1481,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             zoneTotals={activeSetupId ? zoneTotals : undefined}
             setupActive={!!activeSetupId}
             sectionBoundaries={activeSetupId ? sectionBoundaries : undefined}
+            background={underlay}
+            backgroundVisible={underlayVisible}
+            onBackgroundImageLoad={(size) => setBgImageSize((prev) =>
+              prev && prev.width === size.width && prev.height === size.height ? prev : size
+            )}
+            calibrating={calibrationOpen}
+            calibrationPoints={calibrationPoints}
+            onCalibrationPoint={handleCalibrationPoint}
           />
         </div>
 
@@ -1319,8 +1529,108 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               </div>
             </div>
           )}
-          {/* The palette is the way furniture gets onto a layout — keep it at
-              the top of the panel and out of the way of the inspector below. */}
+          <Panel variant="outline" className="space-y-2" data-testid="underlay-panel">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-mono text-xs text-grey-light uppercase tracking-wider">REFERENCE IMAGE</p>
+              <span className="font-mono text-xs uppercase text-grey-light">
+                {underlay.imageUrl ? (underlayVisible ? 'SHOWN' : 'HIDDEN') : 'NONE'}
+              </span>
+            </div>
+            <ImagePicker
+              value={underlay.imageUrl}
+              onChange={handleUnderlayImage}
+              label="DRAWING"
+            />
+            <p className="font-mono text-xs text-grey-light/70 leading-snug">
+              UPLOADS ARE DOWNSCALED TO 2000 PX. CALIBRATION STAYS ACCURATE, BUT FINE LINE DETAIL MAY BLUR.
+            </p>
+            {underlay.imageUrl && (
+              <>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setUnderlayVisible((v) => !v)}
+                    className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white"
+                  >
+                    {underlayVisible ? 'HIDE' : 'SHOW'}
+                  </button>
+                  <button
+                    onClick={() => setUnderlayLocked((v) => !v)}
+                    className={`font-mono text-xs uppercase border px-2 py-1 ${
+                      underlayLocked
+                        ? 'border-success text-success'
+                        : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {underlayLocked ? 'LOCKED' : 'UNLOCKED'}
+                  </button>
+                </div>
+                <p className="font-mono text-xs text-grey-light uppercase">
+                  {formatUnderlayScale(underlay.scale)} · {Math.round(underlay.opacity * 100)}%
+                </p>
+                <Input
+                  label="OPACITY (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  disabled={underlayLocked}
+                  value={Math.round(underlay.opacity * 100).toString()}
+                  onChange={(e) => patchUnderlay({ opacity: (parseFloat(e.target.value) || 0) / 100 })}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    label="OFFSET X CM"
+                    type="number"
+                    step="1"
+                    disabled={underlayLocked}
+                    value={underlay.offsetX.toString()}
+                    onChange={(e) => patchUnderlay({ offsetX: parseFloat(e.target.value) || 0 })}
+                  />
+                  <Input
+                    label="OFFSET Y CM"
+                    type="number"
+                    step="1"
+                    disabled={underlayLocked}
+                    value={underlay.offsetY.toString()}
+                    onChange={(e) => patchUnderlay({ offsetY: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <Input
+                  label="SCALE (CM/PX)"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  disabled={underlayLocked}
+                  value={scaleInput}
+                  onChange={(e) => {
+                    // Keep the typed string so clearing/typing does not snap
+                    // straight back to the default mid-edit.
+                    setScaleInput(e.target.value)
+                    const next = Number(e.target.value)
+                    if (e.target.value.trim() !== '' && Number.isFinite(next) && next > 0) {
+                      patchUnderlay({ scale: next })
+                    }
+                  }}
+                  onBlur={() => {
+                    const next = normaliseUnderlay({ ...underlay, scale: Number(scaleInput) }).scale
+                    setScaleInput(String(next))
+                    if (next !== underlay.scale) patchUnderlay({ scale: next })
+                  }}
+                />
+                <button
+                  onClick={openCalibration}
+                  className="font-mono text-xs uppercase w-full border border-accent text-accent px-2 py-1"
+                >
+                  CALIBRATE
+                </button>
+                <p className="font-mono text-xs text-grey-light leading-snug">
+                  THE DRAWING SITS UNDER THE GRID AND TABLE LAYOUT. IT NEVER TAKES CLICKS OR DRAGS.
+                </p>
+                {underlayDirty && (
+                  <p className="font-mono text-xs text-warning uppercase">UNSAVED — SAVE THE PLAN TO COMMIT</p>
+                )}
+              </>
+            )}
+          </Panel>
           <FurniturePalette
             furniture={furniture}
             armedId={armedFurnitureId}
@@ -1512,10 +1822,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <div className="grid grid-cols-2 gap-2">
                       <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
                         onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
-                        onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, planDims.gridUnit) }) }} />
                       <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
                         onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
-                        onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, planDims.gridUnit) }) }} />
                     </div>
                   </Panel>
                   <Panel variant="outline">
@@ -1721,17 +2031,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <div className="border-t border-grey-mid pt-2 space-y-2">
                     <Input label="X (cm)" type="number" step="10" value={Math.round(z.x).toString()}
                       onChange={(e) => patchZone(z.id, { x: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => patchZone(z.id, { x: snap(z.x, plan.gridUnit) })} />
+                      onBlur={() => patchZone(z.id, { x: snap(z.x, planDims.gridUnit) })} />
                     <Input label="Y (cm)" type="number" step="10" value={Math.round(z.y).toString()}
                       onChange={(e) => patchZone(z.id, { y: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => patchZone(z.id, { y: snap(z.y, plan.gridUnit) })} />
+                      onBlur={() => patchZone(z.id, { y: snap(z.y, planDims.gridUnit) })} />
                     <div className="grid grid-cols-2 gap-2">
                     <Input label="W" type="number" step="10" value={Math.round(z.width).toString()}
-                      onChange={(e) => patchZone(z.id, { width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) })}
-                      onBlur={() => patchZone(z.id, { width: Math.max(snap(z.width, plan.gridUnit), plan.gridUnit) })} />
+                      onChange={(e) => patchZone(z.id, { width: Math.max(parseFloat(e.target.value) || planDims.gridUnit, planDims.gridUnit) })}
+                      onBlur={() => patchZone(z.id, { width: Math.max(snap(z.width, planDims.gridUnit), planDims.gridUnit) })} />
                     <Input label="H" type="number" step="10" value={Math.round(z.height).toString()}
-                      onChange={(e) => patchZone(z.id, { height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) })}
-                      onBlur={() => patchZone(z.id, { height: Math.max(snap(z.height, plan.gridUnit), plan.gridUnit) })} />
+                      onChange={(e) => patchZone(z.id, { height: Math.max(parseFloat(e.target.value) || planDims.gridUnit, planDims.gridUnit) })}
+                      onBlur={() => patchZone(z.id, { height: Math.max(snap(z.height, planDims.gridUnit), planDims.gridUnit) })} />
                     </div>
                     <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((z as any).labelScale ?? 1).toString()}
                       onChange={(e) => patchZone(z.id, { labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) })} />
