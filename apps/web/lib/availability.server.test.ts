@@ -1167,6 +1167,19 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
     const call = db.staffAvailability.updateMany.mock.calls[0][0]
     expect(call.where).toMatchObject({ id: { in: ['a1', 'a2'] }, venueId: 'v1', deletedAt: null, status: 'PENDING', lockedAt: null })
     expect(call.data.deletedAt).toBeInstanceOf(Date)
+    // No actor → no invented attribution.
+    expect(call.data.reviewedById).toBeUndefined()
+    expect(call.data.reviewedAt).toBeUndefined()
+  })
+
+  it('stamps the cancelling manager on the existing review columns', async () => {
+    db.staffAvailability.updateMany.mockResolvedValueOnce({ count: 1 })
+    await cancelPendingAvailability({ venueId: 'v1', ids: ['a1'], actorId: 'm1' })
+
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.reviewedById).toBe('m1')
+    expect(data.reviewedAt).toBeInstanceOf(Date)
+    expect(data.reviewNote).toBe('CANCELLED')
   })
 
   it('cancels a whole pending series when no ids are given', async () => {
@@ -1183,12 +1196,14 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
     expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
   })
 
-  it('withdraws the worker\'s own pending request', async () => {
+  it('withdraws the worker\'s own pending request and records who withdrew it', async () => {
     db.availabilityEditRequest.findUnique.mockResolvedValueOnce({ id: 'r1', staffId: 'st1', status: 'PENDING', deletedAt: null })
     expect(await withdrawEditRequest('r1', 'st1')).toBe(true)
     const data = db.availabilityEditRequest.update.mock.calls[0][0].data
     expect(data.status).toBe('DISCARDED')
     expect(data.deletedAt).toBeInstanceOf(Date)
+    expect(data.reviewedById).toBe('st1')
+    expect(data.reviewedAt).toBeInstanceOf(Date)
   })
 
   it('refuses another worker\'s request or an already-resolved one', async () => {

@@ -1532,4 +1532,44 @@ describe('AvailabilityAdminClient', () => {
       expect(JSON.parse((post![1] as RequestInit).body as string).action).toBe('APPLY')
     })
   })
+
+  it('opens the read-only history from the grid toolbar and from a person', async () => {
+    const history = {
+      venueId: 'v1',
+      today: monday,
+      from: monday,
+      to: monday,
+      staff: [{ id: 'st1', name: 'TAYLOR REED' }],
+      requests: [],
+      days: [],
+      truncated: false,
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+      if (String(url).includes('/availability/history')) {
+        return { ok: true, status: 200, json: async () => history } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByRole('button', { name: 'HISTORY' }))
+
+    expect(await screen.findByText('AVAILABILITY HISTORY')).toBeDefined()
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('/api/admin/availability/history?venueId=v1'))).toBe(true)
+
+    // The person modal carries its own HISTORY shortcut, scoped to that person.
+    fireEvent.click(screen.getByText('[ESC]'))
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    const historyButtons = await screen.findAllByRole('button', { name: 'HISTORY' })
+    // The person modal is rendered before the grid toolbar, so its shortcut is first.
+    fireEvent.click(historyButtons[0])
+
+    await waitFor(() => {
+      const scoped = spy.mock.calls.filter((c) => String(c[0]).includes('/availability/history'))
+      expect(scoped.length).toBeGreaterThan(1)
+      expect((screen.getByLabelText('Filter history by staff') as HTMLSelectElement).value).toBe('st1')
+    })
+  })
 })

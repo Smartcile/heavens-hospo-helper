@@ -153,3 +153,20 @@ describe('POST /api/admin/availability/review APPROVE lock rule', () => {
     expect(await res.json()).toEqual({ updated: 2, superseded: 2 })
   })
 })
+
+describe('POST /api/admin/availability/review DELETE', () => {
+  it('cancels the declaration with the manager stamped as the actor', async () => {
+    cancelPendingAvailability.mockResolvedValue(2)
+
+    const res = await POST(req({ action: 'DELETE', ids: ['a1', 'a2'] }))
+
+    expect(await res.json()).toEqual({ deleted: 2 })
+    expect(cancelPendingAvailability).toHaveBeenCalledWith({
+      venueId: 'v1',
+      ids: ['a1', 'a2'],
+      staffId: null,
+      seriesId: null,
+      actorId: 'u1',
+    })
+  })
+})

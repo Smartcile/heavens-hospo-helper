@@ -936,12 +936,15 @@ export async function requestSeriesRemoval(
 
 /** Admin cancel: soft-delete PENDING declarations by id, or every still-pending
  *  occurrence of a series. Approved rows are never touched — the grid editor's
- *  clear handles those. */
+ *  clear handles those. The cancelling manager is stamped on the existing review
+ *  columns so the history popup can say who cancelled a declaration. */
 export async function cancelPendingAvailability(input: {
   venueId: string
   ids?: string[]
   staffId?: string | null
   seriesId?: string | null
+  /** The manager cancelling — omitted by callers that are not a review. */
+  actorId?: string | null
 }): Promise<number> {
   const ids = (input.ids ?? []).filter((x): x is string => typeof x === 'string' && !!x)
   const where = ids.length > 0
@@ -952,7 +955,12 @@ export async function cancelPendingAvailability(input: {
   if (!where) return 0
   const result = await prisma.staffAvailability.updateMany({
     where: { ...where, venueId: input.venueId, deletedAt: null, status: 'PENDING', lockedAt: null },
-    data: { deletedAt: new Date() },
+    data: {
+      deletedAt: new Date(),
+      ...(input.actorId
+        ? { reviewedById: input.actorId, reviewedAt: new Date(), reviewNote: 'CANCELLED' }
+        : {}),
+    },
   })
   return result.count
 }
@@ -970,6 +978,9 @@ export interface EditRequestRow {
   status: string
   reviewNote: string | null
   createdAt: Date
+  reviewedById?: string | null
+  reviewedAt?: Date | null
+  deletedAt?: Date | null
 }
 
 export function mapEditRequest(row: EditRequestRow) {
@@ -988,6 +999,10 @@ export function mapEditRequest(row: EditRequestRow) {
     reason: row.reason,
     status: row.status,
     reviewNote: row.reviewNote,
+    reviewedById: row.reviewedById ?? null,
+    reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+    /** Set on a worker withdrawal — the history popup badges it WITHDRAWN. */
+    withdrawn: !!row.deletedAt,
     createdAt: row.createdAt.toISOString(),
   }
 }
@@ -1121,13 +1136,20 @@ export async function supersedeRequestsCoveredBy(input: {
 
 /** Worker withdraws (cancels) their own pending edit request. The approved
  *  availability rows stay exactly as they are — the request just stops
- *  waiting. Only the owning staff member can withdraw, and only while PENDING. */
+ *  waiting. Only the owning staff member can withdraw, and only while PENDING.
+ *  The existing review stamp records the actor so the history popup shows who
+ *  withdrew it (the row is soft-deleted and reads as WITHDRAWN). */
 export async function withdrawEditRequest(id: string, staffId: string): Promise<boolean> {
   const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })
   if (!request || request.deletedAt || request.status !== 'PENDING' || request.staffId !== staffId) return false
   await prisma.availabilityEditRequest.update({
     where: { id },
-    data: { status: 'DISCARDED', reviewedAt: new Date(), deletedAt: new Date() },
+    data: {
+      status: 'DISCARDED',
+      reviewedById: staffId,
+      reviewedAt: new Date(),
+      deletedAt: new Date(),
+    },
   })
   return true
 }
