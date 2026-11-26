@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { EventPromptModal, mergeParsedBlocks } from '@/components/admin/EventPromptModal'
-import { BEO_BLOCKS } from '@/lib/beo-blocks'
+import { EventPromptModal, mergeParsedBlocks, type PromptBlockRow } from '@/components/admin/EventPromptModal'
+import { BEO_BLOCKS, blockState } from '@/lib/beo-blocks'
 import type { EventPromptEvent } from '@/lib/event-prompt'
 
 const EVENT: EventPromptEvent = {
@@ -20,7 +20,7 @@ const EVENT: EventPromptEvent = {
   notes: null,
 }
 
-const BLOCKS = [
+const BLOCKS: PromptBlockRow[] = [
   { id: 'b1', type: 'MENU_SELECTION', title: null, config: { items: [], notes: 'OLD' }, sortOrder: 0 },
 ]
 
@@ -37,14 +37,14 @@ function fenced(value: string): string {
   return `\`\`\`json\n${value}\n\`\`\``
 }
 
-function setup(onApply = vi.fn().mockResolvedValue(true)) {
+function setup(onApply = vi.fn().mockResolvedValue(true), blocks = BLOCKS) {
   const onClose = vi.fn()
   render(
     <EventPromptModal
       isOpen
       onClose={onClose}
       event={EVENT}
-      blocks={BLOCKS}
+      blocks={blocks}
       refs={REFS}
       library={BEO_BLOCKS}
       onApply={onApply}
@@ -83,8 +83,55 @@ describe('EventPromptModal', () => {
     const result = onApply.mock.calls[0][0] as { patch: Record<string, unknown>; blocks: unknown[]; summary: string }
     expect(result.patch).toEqual({ guestCount: 110, status: 'CONFIRMED' })
     expect(result.blocks.map((b) => (b as { type: string }).type)).toEqual(['MENU_SELECTION', 'AWAITING'])
-    expect(result.summary).toBe('LLM_PASTE — 2 FIELD(S), 1 BLOCK(S)')
+    expect(result.summary).toBe('LLM_PASTE — 2 FIELD(S), 2 BLOCK(S)')
     expect(result.summary).not.toContain('THANK YOU')
+  })
+
+  it('enables APPLY for a same-count content change and counts the block', async () => {
+    const { onApply } = setup(undefined, [
+      { id: 'b1', type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 96 }] }, sortOrder: 0 },
+    ])
+    pasteAndPreview(
+      fenced(
+        JSON.stringify({
+          blocks: [
+            { type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 110 }] } },
+          ],
+        }),
+      ),
+    )
+
+    const apply = screen.getByText('APPLY') as HTMLButtonElement
+    expect(apply.disabled).toBe(false)
+    fireEvent.click(apply)
+
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+    const result = onApply.mock.calls[0][0] as { summary: string }
+    expect(result.summary).toBe('LLM_PASTE — 0 FIELD(S), 1 BLOCK(S)')
+  })
+
+  it('keeps an existing CONFIRMED block state when the answer returns the block without state', async () => {
+    const { onApply } = setup(undefined, [
+      {
+        id: 'b1',
+        type: 'MENU_SELECTION',
+        title: null,
+        config: { items: [], notes: 'OLD', __state: 'CONFIRMED' },
+        sortOrder: 0,
+      },
+    ])
+    pasteAndPreview(
+      fenced(
+        JSON.stringify({
+          blocks: [{ type: 'MENU_SELECTION', title: null, config: { items: [], notes: 'BUFFET' } }],
+        }),
+      ),
+    )
+    fireEvent.click(screen.getByText('APPLY'))
+
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+    const result = onApply.mock.calls[0][0] as { blocks: { config: Record<string, unknown> }[] }
+    expect(blockState(result.blocks[0])).toBe('CONFIRMED')
   })
 
   it('keeps APPLY disabled and shows a readable reason for an invalid answer', () => {

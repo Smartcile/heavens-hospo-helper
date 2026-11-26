@@ -37,6 +37,7 @@ const EVENT: EventDetail = {
     { at: '2026-11-25T01:02:00.000Z', type: 'CREATED', note: 'EVENT CREATED' },
     { at: '2026-11-25T02:03:00.000Z', type: 'LLM_PASTE', note: 'LLM_PASTE — 1 FIELD(S), 1 BLOCK(S)' },
   ],
+  venue: { name: 'AKARANA EATERY' },
 }
 
 const REFS = { menus: [], menuItems: [], services: [], setups: [] }
@@ -126,10 +127,16 @@ describe('EventBuilder', () => {
     expect(screen.getByText('CREATED')).toBeTruthy()
   })
 
-  it('opens PROMPT and APPLY writes exactly the two existing PUTs with the diffed body', async () => {
+  it('opens PROMPT with the real venue name and APPLY writes exactly the two existing PUTs with the diffed body', async () => {
     renderBuilder()
     fireEvent.click(screen.getByText('PROMPT'))
     expect(screen.getByTestId('event-prompt-modal')).toBeTruthy()
+    expect(screen.getByText(/AKARANA EATERY/)).toBeTruthy()
+
+    const MESSAGE = 'SECRET CUSTOMER EMAIL BODY 98765'
+    fireEvent.change(screen.getByPlaceholderText("PASTE THE CUSTOMER'S EMAIL OR MESSAGE HERE"), {
+      target: { value: MESSAGE },
+    })
 
     const answer = JSON.stringify({
       event: { guestCount: 110 },
@@ -155,6 +162,8 @@ describe('EventBuilder', () => {
         { id: 'b1', type: 'NOTES', title: null, config: { text: 'NEW' } },
       ])
       expect(blocksBody.historyNote).toBe('LLM_PASTE — 1 FIELD(S), 1 BLOCK(S)')
+      // Privacy contract: the pasted customer message is never in history.
+      expect(blocksBody.historyNote).not.toContain(MESSAGE)
     })
   })
 

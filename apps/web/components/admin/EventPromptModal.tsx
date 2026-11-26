@@ -7,7 +7,6 @@
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { type BlockLibrary } from '@/lib/beo-blocks'
 import {
@@ -46,6 +45,15 @@ function newId(): string {
   return `new_${Math.random().toString(36).slice(2)}`
 }
 
+/** The app's reserved (`__`-prefixed) working keys, e.g. `__state`. */
+function reservedKeys(config: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (key.startsWith('__')) out[key] = value
+  }
+  return out
+}
+
 /**
  * Turn a parsed answer into the next block list, preserving existing ids by
  * type so a reorder does not churn rows. Returns null when the answer does not
@@ -76,11 +84,14 @@ export function mergeParsedBlocks(
     if (b.type === 'AWAITING') continue
     const ids = idsByType.get(b.type)
     const id = ids && ids.length > 0 ? (ids.shift() as string) : newId()
+    const existing = current.find((c) => c.id === id)
     next.push({
       id,
       type: b.type,
       title: b.title?.trim() || null,
-      config: b.config ?? {},
+      // The parser strips `__` keys from the answer. Carry the existing block's
+      // reserved keys forward so APPLY never resets __state (or any future key).
+      config: { ...(b.config ?? {}), ...reservedKeys(existing?.config) },
       sortOrder: next.length,
     })
   }
@@ -92,7 +103,10 @@ export function mergeParsedBlocks(
       id: existingAwaiting?.id ?? newId(),
       type: 'AWAITING',
       title: existingAwaiting?.title ?? null,
-      config: { rows: awaiting.map((a) => ({ label: a.label, since: a.since ?? '' })) },
+      config: {
+        ...reservedKeys(existingAwaiting?.config),
+        rows: awaiting.map((a) => ({ label: a.label, since: a.since ?? '' })),
+      },
       sortOrder: next.length,
     })
   }
@@ -292,7 +306,7 @@ export function EventPromptModal({
                   {diffs.map((d) => (
                     <div key={`${d.kind}-${d.key}`} className="px-2 py-1.5 font-mono text-xs text-white">
                       <div className="text-grey-light uppercase">{d.label}</div>
-                      <div className="truncate"><span className="text-danger line-through">{d.oldValue}</span> → <span className="text-success">{d.newValue}</span></div>
+                      <div className="break-words"><span className="text-danger line-through">{d.oldValue}</span> → <span className="text-success">{d.newValue}</span></div>
                     </div>
                   ))}
                 </div>

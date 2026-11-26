@@ -410,7 +410,7 @@ export function parseEventAnswer(raw: string, library: BlockLibrary = BEO_BLOCKS
           })
           continue
         }
-        const cfg = stripBoundFields(type, asObject(b.config))
+        const cfg = stripBoundFields(type, asObject(b.config), library)
         for (const key of Object.keys(cfg)) {
           if (key.startsWith('__')) delete cfg[key]
         }
@@ -452,6 +452,46 @@ function sameValue(a: unknown, b: unknown): boolean {
   return String(a) === String(b)
 }
 
+/** Order-independent JSON so the same config never reads as a change. */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    return `{${Object.keys(obj)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/** A block config without the app's reserved (`__`-prefixed) working keys. */
+function contentConfig(block: PromptBlock): Record<string, unknown> {
+  const clean: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(block.config ?? {})) {
+    if (!key.startsWith('__')) clean[key] = value
+  }
+  return clean
+}
+
+/**
+ * What a block actually contains — used for the diff. Deliberately the real
+ * config (not `summariseBlock`, which only says "N ITEMS"), so a same-count
+ * quantity / item / note / awaiting-label change still produces a diff row.
+ */
+function describeBlock(block: PromptBlock | undefined): string {
+  if (!block) return '—'
+  const cfg = contentConfig(block)
+  const title = block.title?.trim()
+  const parts = Object.keys(cfg)
+    .sort()
+    .map((key) => {
+      const value = cfg[key]
+      return `${key.toUpperCase()}: ${typeof value === 'string' ? value : stableStringify(value)}`
+    })
+  return [blockLabel(block.type), title ? `TITLE: ${title}` : '', ...parts].filter(Boolean).join(' · ')
+}
+
 /**
  * Per-field and per-block old → new, so APPLY is a review step. Only changed
  * rows are returned. `nextBlocks === null` leaves blocks out of the diff.
@@ -480,14 +520,8 @@ export function diffEventPatch(
   if (nextBlocks) {
     const count = Math.max(currentBlocks.length, nextBlocks.length)
     for (let i = 0; i < count; i++) {
-      const before = currentBlocks[i]
-      const after = nextBlocks[i]
-      const beforeText = before
-        ? `${blockLabel(before.type)} · ${summariseBlock({ type: before.type, config: before.config ?? {} } as BeoBlockLike)}`
-        : '—'
-      const afterText = after
-        ? `${blockLabel(after.type)} · ${summariseBlock({ type: after.type, config: after.config ?? {} } as BeoBlockLike)}`
-        : '—'
+      const beforeText = describeBlock(currentBlocks[i])
+      const afterText = describeBlock(nextBlocks[i])
       if (beforeText === afterText) continue
       diffs.push({
         kind: 'BLOCK',

@@ -72,6 +72,8 @@ export interface EventDetail {
   changeRequests?: { id: string; kind: string; status: string; message: string }[]
   /** Append-only activity log (CREATED / STATUS / BLOCKS / LLM_PASTE …). */
   history?: EventHistoryEntry[]
+  /** Venue name for the prompt / header; present on the API payload. */
+  venue?: { name: string } | null
 }
 
 interface Option { id: string; name: string }
@@ -647,7 +649,7 @@ export function EventBuilder({
           event={draft as unknown as EventPromptEvent}
           blocks={draft.blocks}
           refs={{
-            venueName: undefined,
+            venueName: draft.venue?.name,
             menus: refs.menus,
             menuItems: refs.menuItems,
             services: refs.services,

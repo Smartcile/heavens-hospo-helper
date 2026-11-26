@@ -208,6 +208,58 @@ describe('diffEventPatch', () => {
     expect(diffs[0]).toMatchObject({ kind: 'BLOCK', key: '0' })
     expect(diffs[1]).toMatchObject({ kind: 'BLOCK', key: '1', oldValue: '—' })
   })
+
+  it('diffs a same-count quantity change (not just "1 ITEM")', () => {
+    const current = [
+      { type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 96 }] } },
+    ]
+    const next = [
+      { type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 110 }] } },
+    ]
+    const diffs = diffEventPatch({}, {}, current, next)
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0].oldValue).toContain('96')
+    expect(diffs[0].newValue).toContain('110')
+  })
+
+  it('diffs a swapped item with the same count', () => {
+    const current = [
+      { type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 2 }] } },
+    ]
+    const next = [
+      { type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm2', qty: 2 }] } },
+    ]
+    const diffs = diffEventPatch({}, {}, current, next)
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0].oldValue).toContain('m1')
+    expect(diffs[0].newValue).toContain('m2')
+  })
+
+  it('diffs a notes change with the same item count', () => {
+    const current = [{ type: 'MENU_SELECTION', title: null, config: { items: [], notes: 'OLD' } }]
+    const next = [{ type: 'MENU_SELECTION', title: null, config: { items: [], notes: 'BUFFET' } }]
+    const diffs = diffEventPatch({}, {}, current, next)
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0].oldValue).toContain('OLD')
+    expect(diffs[0].newValue).toContain('BUFFET')
+  })
+
+  it('diffs a changed awaiting label with the same row count', () => {
+    const current = [{ type: 'AWAITING', title: null, config: { rows: [{ label: 'DEPOSIT', since: '' }] } }]
+    const next = [
+      { type: 'AWAITING', title: null, config: { rows: [{ label: 'FINAL NUMBERS', since: '' }] } },
+    ]
+    const diffs = diffEventPatch({}, {}, current, next)
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0].oldValue).toContain('DEPOSIT')
+    expect(diffs[0].newValue).toContain('FINAL NUMBERS')
+  })
+
+  it('ignores the reserved __state key when comparing blocks', () => {
+    const current = [{ type: 'NOTES', title: null, config: { text: 'SAME' } }]
+    const next = [{ type: 'NOTES', title: null, config: { text: 'SAME', __state: 'CONFIRMED' } }]
+    expect(diffEventPatch({}, {}, current, next)).toEqual([])
+  })
 })
 
 describe('awaitingFromBlocks', () => {
