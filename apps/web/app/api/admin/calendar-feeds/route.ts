@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         floorPlanId: true,
         sortOrder: true,
         notes: true,
-        _count: { select: { events: true } },
+        _count: { select: { events: { where: { deletedAt: null } } } },
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
@@ -69,6 +69,7 @@ export async function GET(req: NextRequest) {
       isActive: f.isActive,
       lastSyncedAt: f.lastSyncedAt,
       notes: f.notes,
+      roomDismissed: f.roomDismissed,
     })),
     floorPlans,
     areas: areas.map((a) => ({

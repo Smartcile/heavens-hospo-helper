@@ -36,7 +36,12 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       name: true,
-      _count: { select: { feeds: true, events: true } },
+      _count: {
+        select: {
+          feeds: { where: { deletedAt: null } },
+          events: { where: { deletedAt: null } },
+        },
+      },
     },
   })
 

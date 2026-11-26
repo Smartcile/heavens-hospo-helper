@@ -92,7 +92,7 @@ describe('SettingsClient tabs', () => {
     expect(await screen.findByText(/A ROOM IS A PHYSICAL EVENT SPACE/)).toBeTruthy()
   })
 
-  it('hides ROOMS from a manager without the floorplans grant', () => {
+  it('hides ROOMS from a manager without the team grant', () => {
     mocks.params = new URLSearchParams('tab=rooms')
     render(<SettingsClient {...props} role="MANAGER" grantedAreas={['compliance']} />)
     expect(screen.queryByRole('button', { name: 'ROOMS' })).toBeNull()
@@ -100,8 +100,15 @@ describe('SettingsClient tabs', () => {
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 
-  it('shows ROOMS to a manager with the floorplans grant', () => {
+  it('hides ROOMS from a floorplans-only manager (the area APIs need team.roster)', () => {
+    mocks.params = new URLSearchParams('tab=rooms')
     render(<SettingsClient {...props} role="MANAGER" grantedAreas={['floorplans']} />)
+    expect(screen.queryByRole('button', { name: 'ROOMS' })).toBeNull()
+    expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
+  })
+
+  it('shows ROOMS to a manager with the team grant', () => {
+    render(<SettingsClient {...props} role="MANAGER" grantedAreas={['team']} />)
     expect(screen.getByRole('button', { name: 'ROOMS' })).toBeTruthy()
   })
 

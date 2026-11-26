@@ -40,6 +40,8 @@ interface RoomFeed {
   sortOrder: number
   isActive: boolean
   lastSyncedAt: string | null
+  /** The room this feed belonged to was removed; it stays unassigned until a room is picked. */
+  roomDismissed?: boolean
 }
 
 interface PlanOption { id: string; name: string }
@@ -163,9 +165,47 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
     void load()
   }
 
+  // sortOrder drives the room/calendar pickers and the event roster, so the
+  // ↑/↓ controls persist through the existing reorder routes.
+  async function moveRoom(id: string, dir: -1 | 1) {
+    const index = areas.findIndex((a) => a.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= areas.length) return
+    const next = [...areas]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setAreas(next)
+    await fetch('/api/admin/areas/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, order: next.map((a) => a.id) }),
+    })
+  }
+
+  async function moveFeed(id: string, dir: -1 | 1) {
+    const index = feeds.findIndex((f) => f.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= feeds.length) return
+    const next = [...feeds]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setFeeds(next)
+    await fetch('/api/admin/calendar-feeds/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, orderedIds: next.map((f) => f.id) }),
+    })
+  }
+
   async function cleanUp(junkRoom: JunkRoom, action: 'REHOME' | 'REMOVE') {
     const targetAreaId = junkTargets[junkRoom.id] || null
-    if (action === 'REHOME' && !targetAreaId) { setMessage('CHOOSE A ROOM TO MOVE TO'); return }
+    if (action === 'REHOME') {
+      if (!targetAreaId) { setMessage('CHOOSE A ROOM TO MOVE TO'); return }
+      const target = areas.find((a) => a.id === targetAreaId)
+      const feedText = `${junkRoom.feedCount} CALENDAR${junkRoom.feedCount === 1 ? '' : 'S'}`
+      const eventText = `${junkRoom.eventCount} EVENT${junkRoom.eventCount === 1 ? '' : 'S'}`
+      if (!confirm(`MOVE ${feedText} AND ${eventText} INTO ${target?.name ?? 'THE SELECTED ROOM'}? ${junkRoom.name} IS THEN REMOVED.`)) return
+    }
     if (action === 'REMOVE' && !confirm(`REMOVE ${junkRoom.name}? ITS ${junkRoom.feedCount} CALENDAR(S) BECOME UNASSIGNED.`)) return
     setBusy(true); setMessage('')
     const r = await fetch('/api/admin/areas/cleanup', {
@@ -250,7 +290,7 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-grey-mid font-mono text-xs text-white">
-              {areas.map((a) => (
+              {areas.map((a, i) => (
                 <tr key={a.id}>
                   <td className="px-3 py-2">{a.name}</td>
                   <td className="px-3 py-2">{a.capacity ?? '—'}</td>
@@ -258,6 +298,18 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
                   <td className="px-3 py-2">{a.feedCount}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
+                      <button
+                        aria-label={`Move ${a.name} up`}
+                        onClick={() => void moveRoom(a.id, -1)}
+                        disabled={i === 0}
+                        className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
+                      >↑</button>
+                      <button
+                        aria-label={`Move ${a.name} down`}
+                        onClick={() => void moveRoom(a.id, 1)}
+                        disabled={i === areas.length - 1}
+                        className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
+                      >↓</button>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(a)}>EDIT</Button>
                       <Button size="sm" variant="danger" onClick={() => void removeRoom(a)} disabled={busy}>✕</Button>
                     </div>
@@ -277,7 +329,7 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
         {feeds.length === 0 && (
           <p className="font-mono text-2xs uppercase text-grey-light">NO CALENDARS YET — ADD THE FIRST ONE BELOW.</p>
         )}
-        {feeds.map((f) => (
+        {feeds.map((f, i) => (
           <div key={f.id} className="border border-grey-mid p-2 space-y-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <Input label="Calendar name" value={f.name} onChange={(e) => patchFeed(f.id, { name: e.target.value })} />
@@ -287,16 +339,53 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
               <div className="w-48">
                 <Select label="Room" value={f.areaId ?? ''} onChange={(e) => patchFeed(f.id, { areaId: e.target.value || null })} options={roomOptions} />
               </div>
+              <div className="w-44">
+                <Select
+                  aria-label={`Calendar ${f.id} table plan`}
+                  label="Table plan"
+                  value={f.floorPlanId ?? ''}
+                  onChange={(e) => patchFeed(f.id, { floorPlanId: e.target.value || null })}
+                  options={[{ value: '', label: 'NO FLOOR PLAN' }, ...floorPlans.map((p) => ({ value: p.id, label: p.name }))]}
+                />
+              </div>
+              <div className="w-16">
+                <label className="label" htmlFor={`feed-colour-${f.id}`}>Colour</label>
+                <input
+                  id={`feed-colour-${f.id}`}
+                  aria-label={`Calendar ${f.id} colour`}
+                  type="color"
+                  value={f.colour || '#0E7490'}
+                  onChange={(e) => patchFeed(f.id, { colour: e.target.value })}
+                  className="w-full h-8 bg-black border border-grey-mid"
+                />
+              </div>
               <label className="flex items-center gap-2 pb-2 font-mono text-2xs uppercase text-grey-light">
                 <input type="checkbox" checked={f.isActive} onChange={(e) => patchFeed(f.id, { isActive: e.target.checked })} className="accent-white" />
                 ACTIVE
               </label>
               <span className="font-mono text-2xs uppercase text-grey-light pb-2">{f.source}</span>
               <div className="flex items-center gap-1 ml-auto">
+                <button
+                  aria-label={`Move calendar ${f.id} up`}
+                  onClick={() => void moveFeed(f.id, -1)}
+                  disabled={i === 0}
+                  className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
+                >↑</button>
+                <button
+                  aria-label={`Move calendar ${f.id} down`}
+                  onClick={() => void moveFeed(f.id, 1)}
+                  disabled={i === feeds.length - 1}
+                  className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
+                >↓</button>
                 <Button size="sm" variant="ghost" onClick={() => void saveFeed(f)} loading={busy}>SAVE</Button>
                 <Button size="sm" variant="danger" onClick={() => void removeFeed(f.id)} disabled={busy}>✕</Button>
               </div>
             </div>
+            {f.roomDismissed && (
+              <p className="font-mono text-2xs uppercase text-warning">
+                ROOM REMOVED — THIS CALENDAR STAYS UNASSIGNED. PICK A ROOM ABOVE AND SAVE TO RE-ENABLE IT.
+              </p>
+            )}
           </div>
         ))}
 

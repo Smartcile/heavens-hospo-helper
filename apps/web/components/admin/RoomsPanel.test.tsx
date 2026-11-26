@@ -19,6 +19,18 @@ const AREAS = [
     feedCount: 1,
     eventCount: 2,
   },
+  {
+    id: 'a2',
+    name: 'BAR',
+    colour: null,
+    capacity: null,
+    floorPlanId: null,
+    notes: null,
+    sortOrder: 1,
+    isActive: true,
+    feedCount: 0,
+    eventCount: 0,
+  },
 ]
 
 const FEEDS = [
@@ -33,6 +45,20 @@ const FEEDS = [
     sortOrder: 0,
     isActive: true,
     lastSyncedAt: null,
+    roomDismissed: false,
+  },
+  {
+    id: 'f2',
+    areaId: null,
+    name: 'SIDE CALENDAR',
+    url: 'https://example.com/b.ics',
+    source: 'ICAL',
+    colour: '#112233',
+    floorPlanId: null,
+    sortOrder: 1,
+    isActive: true,
+    lastSyncedAt: null,
+    roomDismissed: true,
   },
 ]
 
@@ -71,7 +97,7 @@ describe('RoomsPanel (Settings rooms)', () => {
     installFetchMock()
     render(<RoomsPanel venueId="v1" />)
 
-    expect(await screen.findByText('ROOMS (1)')).toBeTruthy()
+    expect(await screen.findByText('ROOMS (2)')).toBeTruthy()
     expect(roomsTable().getByText('FUNCTION ROOM')).toBeTruthy()
     expect(roomsTable().getByText('MAIN PLAN')).toBeTruthy()
     expect(roomsTable().getByText('1')).toBeTruthy()
@@ -83,7 +109,7 @@ describe('RoomsPanel (Settings rooms)', () => {
     const { posts } = installFetchMock()
     render(<RoomsPanel venueId="v1" />)
 
-    await screen.findByText('ROOMS (1)')
+    await screen.findByText('ROOMS (2)')
     const row = roomsTable().getByText('FUNCTION ROOM').closest('tr') as HTMLElement
     fireEvent.click(within(row).getByText('EDIT'))
 
@@ -102,7 +128,7 @@ describe('RoomsPanel (Settings rooms)', () => {
     const { posts } = installFetchMock()
     render(<RoomsPanel venueId="v1" />)
 
-    await screen.findByText('ROOMS (1)')
+    await screen.findByText('ROOMS (2)')
     fireEvent.click(screen.getByTestId('add-room'))
     fireEvent.change(screen.getByPlaceholderText('FUNCTION ROOM'), { target: { value: 'the hall' } })
     fireEvent.click(screen.getByText('SAVE ROOM'))
@@ -115,11 +141,26 @@ describe('RoomsPanel (Settings rooms)', () => {
     })
   })
 
+  it('reorders rooms through the existing areas reorder route', async () => {
+    const { posts } = installFetchMock()
+    render(<RoomsPanel venueId="v1" />)
+
+    await screen.findByText('ROOMS (2)')
+    fireEvent.click(screen.getByLabelText('Move FUNCTION ROOM down'))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toMatchObject({
+      url: '/api/admin/areas/reorder',
+      method: 'POST',
+      body: { venueId: 'v1', order: ['a2', 'a1'] },
+    })
+  })
+
   it('requires an explicit room and prefills the calendar name from a Google link', async () => {
     const { posts } = installFetchMock()
     render(<RoomsPanel venueId="v1" />)
 
-    await screen.findByText('ROOMS (1)')
+    await screen.findByText('ROOMS (2)')
     const addButton = screen.getByText('+ ADD CALENDAR') as HTMLButtonElement
     expect(addButton.disabled).toBe(true)
 
@@ -142,12 +183,52 @@ describe('RoomsPanel (Settings rooms)', () => {
     })
   })
 
+  it('keeps a calendar colour and table plan editable and saves them', async () => {
+    const { posts } = installFetchMock()
+    render(<RoomsPanel venueId="v1" />)
+
+    await screen.findByText('ROOMS (2)')
+    fireEvent.change(screen.getByLabelText('Calendar f1 colour'), { target: { value: '#abcdef' } })
+    fireEvent.change(screen.getByLabelText('Calendar f1 table plan'), { target: { value: 'p1' } })
+    const card = screen.getByLabelText('Calendar f1 colour').closest('div.border') as HTMLElement
+    fireEvent.click(within(card).getByText('SAVE'))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toMatchObject({
+      url: '/api/admin/calendar-feeds/f1',
+      method: 'PUT',
+      body: expect.objectContaining({ colour: '#abcdef', floorPlanId: 'p1' }),
+    })
+  })
+
+  it('reorders calendars through the existing feed reorder route', async () => {
+    const { posts } = installFetchMock()
+    render(<RoomsPanel venueId="v1" />)
+
+    await screen.findByText('ROOMS (2)')
+    fireEvent.click(screen.getByLabelText('Move calendar f1 down'))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toMatchObject({
+      url: '/api/admin/calendar-feeds/reorder',
+      method: 'POST',
+      body: { venueId: 'v1', orderedIds: ['f2', 'f1'] },
+    })
+  })
+
+  it('shows why a dismissed calendar stays unassigned', async () => {
+    installFetchMock()
+    render(<RoomsPanel venueId="v1" />)
+
+    expect(await screen.findByText(/ROOM REMOVED — THIS CALENDAR STAYS UNASSIGNED/)).toBeTruthy()
+  })
+
   it('explains what happens to feeds and events before removing a room', async () => {
     const { posts } = installFetchMock()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<RoomsPanel venueId="v1" />)
 
-    await screen.findByText('ROOMS (1)')
+    await screen.findByText('ROOMS (2)')
     const row = roomsTable().getByText('FUNCTION ROOM').closest('tr') as HTMLElement
     fireEvent.click(within(row).getByText('✕'))
 
@@ -158,12 +239,20 @@ describe('RoomsPanel (Settings rooms)', () => {
     expect(posts).toHaveLength(0)
   })
 
-  it('lists junk rooms and re-homes one into a real room', async () => {
+  it('lists junk rooms and confirms before re-homing one', async () => {
     const { posts } = installFetchMock()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<RoomsPanel venueId="v1" />)
 
     expect(await screen.findByText('LIKELY JUNK ROOMS (1)')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Junk room target'), { target: { value: 'a1' } })
+    fireEvent.click(screen.getByText('RE-HOME'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(String(confirmSpy.mock.calls[0][0])).toContain('1 CALENDAR')
+    expect(posts).toHaveLength(0)
+
+    confirmSpy.mockReturnValue(true)
     fireEvent.click(screen.getByText('RE-HOME'))
 
     await waitFor(() => expect(posts).toHaveLength(1))

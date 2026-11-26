@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
   prisma: {
@@ -44,6 +44,19 @@ beforeEach(() => {
 })
 
 describe('GET /api/admin/areas/cleanup', () => {
+  it('requires a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    const res = await GET(getRequest())
+    expect(res.status).toBe(401)
+  })
+
+  it('returns the guard denial for a restricted manager without the grant', async () => {
+    guardAccess.mockResolvedValueOnce(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+    const res = await GET(getRequest())
+    expect(res.status).toBe(403)
+    expect(prisma.area.findMany).not.toHaveBeenCalled()
+  })
+
   it('lists only rooms whose names look like calendar identifiers', async () => {
     prisma.area.findMany.mockResolvedValue([
       { id: 'j1', name: '3f9a2b7c8d1e4f5a6b7c8d9e0f1a2b3c', _count: { feeds: 1, events: 2 } },
@@ -56,9 +69,51 @@ describe('GET /api/admin/areas/cleanup', () => {
       { id: 'j1', name: '3f9a2b7c8d1e4f5a6b7c8d9e0f1a2b3c', feedCount: 1, eventCount: 2 },
     ])
   })
+
+  it('counts only live feeds and events', async () => {
+    prisma.area.findMany.mockResolvedValue([
+      { id: 'j1', name: '3f9a2b7c8d1e4f5a6b7c8d9e0f1a2b3c', _count: { feeds: 1, events: 0 } },
+    ])
+    await GET(getRequest())
+    expect(prisma.area.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          _count: {
+            select: {
+              feeds: { where: { deletedAt: null } },
+              events: { where: { deletedAt: null } },
+            },
+          },
+        }),
+      }),
+    )
+  })
 })
 
 describe('POST /api/admin/areas/cleanup', () => {
+  it('requires a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    const res = await POST(postRequest({ areaId: 'j1', action: 'REMOVE' }))
+    expect(res.status).toBe(401)
+  })
+
+  it('returns the guard denial for a restricted manager without the grant', async () => {
+    guardAccess.mockResolvedValueOnce(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+    const res = await POST(postRequest({ areaId: 'j1', action: 'REMOVE' }))
+    expect(res.status).toBe(403)
+    expect(prisma.calendarFeed.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('404s for a room outside the effective venue', async () => {
+    getServerSession.mockResolvedValue({
+      user: { id: 'm1', role: 'MANAGER', venueId: 'v2', availableVenueIds: ['v2'] },
+    })
+    prisma.area.findFirst.mockResolvedValue(null)
+    const res = await POST(postRequest({ areaId: 'j1', action: 'REMOVE' }))
+    expect(res.status).toBe(404)
+    expect(prisma.calendarFeed.updateMany).not.toHaveBeenCalled()
+  })
+
   it('re-homes the feeds and events into a real room and removes the junk room', async () => {
     prisma.area.findFirst
       .mockResolvedValueOnce({ id: 'j1', venueId: 'v1', name: '3f9a2b7c8d1e4f5a6b7c8d9e0f1a2b3c' })

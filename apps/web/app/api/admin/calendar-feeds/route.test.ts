@@ -17,7 +17,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
 
-import { POST } from '@/app/api/admin/calendar-feeds/route'
+import { GET, POST } from '@/app/api/admin/calendar-feeds/route'
 
 function request(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/calendar-feeds', {
@@ -37,6 +37,54 @@ beforeEach(() => {
   prisma.area.findFirst.mockResolvedValue({ id: 'a1' })
   prisma.calendarFeed.create.mockImplementation(async ({ data }: { data: unknown }) => data)
   prisma.$transaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops))
+})
+
+describe('GET /api/admin/calendar-feeds', () => {
+  it('counts only live events per room and exposes the dismissed flag', async () => {
+    prisma.calendarFeed.findMany.mockResolvedValue([
+      {
+        id: 'f1',
+        areaId: 'a1',
+        name: 'ROOM CALENDAR',
+        url: 'https://example.com/a.ics',
+        source: 'ICAL',
+        colour: null,
+        floorPlanId: null,
+        sortOrder: 0,
+        isActive: true,
+        lastSyncedAt: null,
+        notes: null,
+        roomDismissed: false,
+        floorPlan: null,
+      },
+    ])
+    prisma.floorPlan.findMany.mockResolvedValue([])
+    prisma.area.findMany.mockResolvedValue([
+      {
+        id: 'a1',
+        name: 'FUNCTION ROOM',
+        colour: null,
+        capacity: 22,
+        floorPlanId: null,
+        sortOrder: 0,
+        notes: null,
+        _count: { events: 0 },
+      },
+    ])
+
+    const res = await GET(new NextRequest('http://localhost/api/admin/calendar-feeds?venueId=v1'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.areas[0]).toMatchObject({ id: 'a1', eventCount: 0 })
+    expect(body.feeds[0]).toMatchObject({ id: 'f1', roomDismissed: false })
+    expect(prisma.area.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          _count: { select: { events: { where: { deletedAt: null } } } },
+        }),
+      }),
+    )
+  })
 })
 
 describe('POST /api/admin/calendar-feeds', () => {

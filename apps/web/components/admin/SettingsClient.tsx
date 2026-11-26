@@ -406,15 +406,14 @@ export function SettingsClient({
 
   const router = useRouter()
   const searchParams = useSearchParams()
-  // FILES is admin-only; ROOMS (Areas + their calendars) follows the same
-  // grant-gating as the Events → Rooms & Plans sidebar item (restricted
-  // managers need the `floorplans` area). A hidden tab is never seen and a URL
-  // request falls back to the first visible tab.
+  // FILES is admin-only; ROOMS (Areas + their calendars) is gated on the same
+  // `team` area its APIs guard (`team.roster.view|edit`), so a restricted
+  // manager never sees a tab that would only 403. A hidden tab is never seen
+  // and a URL request falls back to the first visible tab.
   const settingsTabs = SETTINGS_TABS.filter((t) => {
     if (t.id === 'files' || t.id === 'updates') return role === 'ADMIN'
-    if (t.id === 'rooms' || t.id === 'floorplans') {
-      return !grantedAreas || grantedAreas.includes('floorplans')
-    }
+    if (t.id === 'rooms') return !grantedAreas || grantedAreas.includes('team')
+    if (t.id === 'floorplans') return !grantedAreas || grantedAreas.includes('floorplans')
     return true
   })
   const { tab } = resolveTab(settingsTabs, searchParams.get('tab'), null)
@@ -802,7 +801,7 @@ export function SettingsClient({
           <VenueSetupClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId} />
         )}
         {tab === 'structure' && <StructureClient role={role} />}
-        {tab === 'rooms' && (!grantedAreas || grantedAreas.includes('floorplans')) && (
+        {tab === 'rooms' && (!grantedAreas || grantedAreas.includes('team')) && (
           <RoomsPanel venueId={venueId} />
         )}
         {tab === 'floorplans' && (!grantedAreas || grantedAreas.includes('floorplans')) && (

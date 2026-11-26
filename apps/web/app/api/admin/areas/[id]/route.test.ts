@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
   prisma: {
@@ -39,6 +39,31 @@ beforeEach(() => {
 })
 
 describe('DELETE /api/admin/areas/[id]', () => {
+  it('requires a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    const res = await DELETE(request(), params)
+    expect(res!.status).toBe(401)
+  })
+
+  it('returns the guard denial (e.g. a restricted manager without the grant)', async () => {
+    guardAccess.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    )
+    const res = await DELETE(request(), params)
+    expect(res!.status).toBe(403)
+    expect(prisma.calendarFeed.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refuses a room belonging to another venue', async () => {
+    getServerSession.mockResolvedValue({
+      user: { id: 'm1', role: 'MANAGER', venueId: 'v1', availableVenueIds: ['v1'] },
+    })
+    prisma.area.findFirst.mockResolvedValue({ id: 'a1', venueId: 'v2' })
+    const res = await DELETE(request(), params)
+    expect(res!.status).toBe(403)
+    expect(prisma.area.update).not.toHaveBeenCalled()
+  })
+
   it('unassigns the room feeds and marks them dismissed so the boot migration cannot re-create the room', async () => {
     const res = await DELETE(request(), params)
     expect(res!.status).toBe(200)
