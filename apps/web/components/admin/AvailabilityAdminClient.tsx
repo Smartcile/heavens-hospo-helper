@@ -18,8 +18,10 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { AvailabilityCommentThread } from '@/components/availability/AvailabilityCommentThread'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
+import { AvailabilityHistoryModal } from '@/components/admin/AvailabilityHistoryModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
+import { describeHistoryRequest } from '@/lib/availability-history'
 import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { dateKeysBetween } from '@/lib/calendar'
@@ -121,15 +123,9 @@ interface EditorTarget {
 }
 
 function payloadSummary(req: AdminEditRequest): string {
-  if (req.action === 'CLEAR') {
-    if (req.scope === 'FROM') return 'REMOVE SERIES FROM THIS DAY'
-    if (req.scope === 'ALL') return 'REMOVE WHOLE SERIES'
-    return 'CLEAR THIS DAY'
-  }
-  const av = req.payload?.availability
-  if (!av) return '—'
-  if (av.isAllDay) return `ALL DAY ${av.type}`
-  return describeWindows(av.windows, false, av.type)
+  // Single wording authority — the history popup uses the same helper, so the
+  // approvals queue and the audit view cannot drift.
+  return describeHistoryRequest(req)
 }
 
 export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, canEdit = true }: {
@@ -166,6 +162,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [openPersonId, setOpenPersonId] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyStaffId, setHistoryStaffId] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [visibleStaffIds, setVisibleStaffIds] = useState<Set<string> | null>(null)
   const [editStaffId, setEditStaffId] = useState<string | null>(null)
@@ -1433,6 +1431,23 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       >
         {openPerson && (
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                THE DECLARATIONS AND REQUESTS STILL WAITING FOR A DECISION.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const staffId = openPerson.staffId
+                  setOpenPersonId(null)
+                  setHistoryStaffId(staffId)
+                  setHistoryOpen(true)
+                }}
+                className="h-8 px-3 border border-grey-mid text-grey-light font-mono text-2xs uppercase hover:border-white hover:text-white transition-colors"
+              >
+                HISTORY
+              </button>
+            </div>
             {error && (
               <p className="border border-danger/50 bg-danger/10 px-3 py-2 font-mono text-xs text-danger">{error}</p>
             )}
@@ -1455,6 +1470,20 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
         )}
       </Modal>
 
+      {/* Read-only history — every declaration day and edit request incl. resolved/withdrawn */}
+      <AvailabilityHistoryModal
+        isOpen={historyOpen}
+        onClose={() => { setHistoryOpen(false); setHistoryStaffId(null) }}
+        venueId={venueId}
+        initialStaffId={historyStaffId}
+        onOpenQueue={(staffId) => {
+          setHistoryOpen(false)
+          setHistoryStaffId(null)
+          setOpenPersonId(staffId)
+          void load(true)
+        }}
+      />
+
       {/* Grid controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -1466,6 +1495,13 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             }`}
           >
             GROUP BY POSITION
+          </button>
+          <button
+            type="button"
+            onClick={() => { setHistoryStaffId(null); setHistoryOpen(true) }}
+            className="font-mono text-xs uppercase px-3 py-1.5 border border-grey-mid text-grey-light hover:border-white hover:text-white transition-colors"
+          >
+            HISTORY
           </button>
           <button
             type="button"

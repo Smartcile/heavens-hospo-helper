@@ -19,6 +19,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma: db }))
 vi.mock('@/lib/availability.server', () => ({ clearAvailability, parseScope, unlockSeriesAvailability }))
 
+import { SERIES_DELETED_NOTE } from '@/lib/availability-history'
 import { POST } from './route'
 
 function req(body: unknown): NextRequest {
@@ -150,7 +151,14 @@ describe('POST /api/admin/availability/delete-series', () => {
           status: 'PENDING',
           date: { in: [new Date('2026-10-08T00:00:00.000Z'), new Date('2026-10-15T00:00:00.000Z')] },
         }),
-        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        data: {
+          deletedAt: expect.any(Date),
+          // A manager removed the request with the series — never a worker withdrawal.
+          status: 'DISCARDED',
+          reviewedById: 'u1',
+          reviewedAt: expect.any(Date),
+          reviewNote: SERIES_DELETED_NOTE,
+        },
       }),
     )
   })

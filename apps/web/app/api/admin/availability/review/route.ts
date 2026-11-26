@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       ids,
       staffId: body?.staffId ?? null,
       seriesId: body?.seriesId ?? null,
+      actorId: session.user.id,
     })
     return NextResponse.json({ deleted })
   }
