@@ -1179,7 +1179,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                   locked ? 'border-danger text-danger' : past ? 'border-grey-mid text-grey-light' : 'border-grey-mid text-white'
                 }`}
               >
-                {formatDateDMY(d)}
+                {formatDateDayDMY(d)}
                 {locked && <span className="text-danger">LOCKED</span>}
                 {past && <span className="text-grey-light">PAST</span>}
               </span>

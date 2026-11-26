@@ -43,7 +43,6 @@ import {
   removeWindow,
   repeatWeekly,
   requestCutoffState,
-  requestSupersedeKey,
   requestTargetDates,
   resolveAvailabilityPresets,
   sameAvailability,
@@ -105,15 +104,6 @@ describe('requestTargetDates', () => {
     expect(requestTargetDates({ writeDates: null, removeDates: ['2026-10-02'] })).toEqual(['2026-10-02'])
     expect(requestTargetDates(null)).toEqual([])
     expect(requestTargetDates(undefined)).toEqual([])
-  })
-})
-
-describe('requestSupersedeKey', () => {
-  it('keys a series request by series + action and a day by date + action', () => {
-    expect(requestSupersedeKey({ staffId: 'st1', seriesId: 's1', date: '2026-10-15', action: 'SET' }))
-      .toBe('st1:series:s1:SET')
-    expect(requestSupersedeKey({ staffId: 'st1', seriesId: null, date: '2026-10-15', action: 'CLEAR' }))
-      .toBe('st1:day:2026-10-15:CLEAR')
   })
 })
 

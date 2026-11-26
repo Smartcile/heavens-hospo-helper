@@ -320,24 +320,6 @@ export function trimRequestTargets<T extends RequestPayloadWithDates>(
   return { superseded: false, changed: true, payload: { ...(payload as T), writeDates: keptWrite, removeDates: keptRemove } }
 }
 
-/**
- * The identity of the change a request makes: two requests with the same key
- * are snapshots of the same fix. A series request is keyed by series + action,
- * a standalone day (including a THIS detach) by its date + action, so a newer
- * snapshot can supersede the older ones without collapsing different targets
- * or actions.
- */
-export function requestSupersedeKey(req: {
-  staffId: string
-  seriesId?: string | null
-  date: string
-  action: string
-}): string {
-  return req.seriesId
-    ? `${req.staffId}:series:${req.seriesId}:${req.action}`
-    : `${req.staffId}:day:${req.date}:${req.action}`
-}
-
 export interface AvailabilityMeta {
   label: string
   /** Badge pill classes: `border ${badge}`. */

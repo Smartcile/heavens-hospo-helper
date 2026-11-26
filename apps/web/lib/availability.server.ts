@@ -1194,16 +1194,31 @@ export async function loadSeriesSummaries(staffIds: string[], seriesIds: string[
   }))
 }
 
-/** Pending edit requests for a staff member in a date range. */
+/**
+ * Pending edit requests for a staff member whose target dates intersect
+ * `[startKey, endKey]`.
+ *
+ * The anchor (`date`) is the request's first target day, so a request anchored
+ * before the visible range can still cover days inside it (a FROM/REPEAT
+ * request opened in a previous week/month). Filtering on the anchor alone hid
+ * those requests from the worker calendar, so the query only bounds the anchor
+ * to `<= end` and then keeps requests with any target inside the range.
+ */
 export async function loadPendingRequests(staffId: string, startKey: string, endKey: string) {
   const rows = await prisma.availabilityEditRequest.findMany({
     where: {
       staffId,
       status: 'PENDING',
       deletedAt: null,
-      date: { gte: utcDay(startKey), lte: new Date(`${endKey}T23:59:59Z`) },
+      date: { lte: new Date(`${endKey}T23:59:59Z`) },
     },
     orderBy: { date: 'asc' },
   })
-  return rows.map(mapEditRequest)
+  return rows
+    .map(mapEditRequest)
+    .filter((req) => {
+      // A legacy request without explicit dates is judged by its anchor.
+      const targets = req.targetDates.length > 0 ? req.targetDates : [req.date]
+      return targets.some((d) => d >= startKey && d <= endKey)
+    })
 }

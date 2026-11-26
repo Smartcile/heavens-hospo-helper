@@ -5,7 +5,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { formatDateDayDMY, formatDateDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
+import { formatDateDayDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
 
 const monday = mondayOf(localDayKey())
 
@@ -76,7 +76,8 @@ describe('AvailabilityAdminClient', () => {
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
 
-    expect(await screen.findByText(formatDateDayDMY(monday))).toBeDefined()
+    const header = await screen.findByText('DECLARATION')
+    expect(header.parentElement?.textContent).toContain(formatDateDayDMY(monday))
   })
 
   it('applies a worker edit request from the person modal', async () => {
@@ -166,7 +167,7 @@ describe('AvailabilityAdminClient', () => {
     fireEvent.click(screen.getByText('OPEN →'))
 
     expect(await screen.findByText('TARGET DAYS:')).toBeDefined()
-    expect(screen.getByText(formatDateDMY(otherDay))).toBeDefined()
+    expect(screen.getByText(formatDateDayDMY(otherDay))).toBeDefined()
     expect(screen.getAllByText('LOCKED').length).toBeGreaterThan(0)
     expect(screen.getByText('LOCKED — UNLOCK FIRST BEFORE APPLYING')).toBeDefined()
   })

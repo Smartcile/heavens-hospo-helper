@@ -473,4 +473,29 @@ describe('WorkerAvailabilityClient', () => {
     // Both target dates show the badge — not only the request's anchor.
     expect(screen.getAllByText('REQ')).toHaveLength(2)
   })
+
+  it('badges a visible day covered by a request anchored before the visible range', async () => {
+    useMonthView()
+    const withEarlierAnchor = {
+      ...payload,
+      requests: [{
+        id: 'r1',
+        date: shiftDay(todayKey, -35),
+        scope: 'FROM',
+        action: 'SET',
+        seriesId: 's1',
+        targetDates: [todayKey],
+      }],
+    }
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => withEarlierAnchor } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    expect(screen.getByText('REQ')).toBeDefined()
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+
+    expect(await screen.findByText(/YOU HAVE A PENDING REQUEST FOR THIS DAY/)).toBeDefined()
+    expect(screen.getByText('REPLACE REQUEST')).toBeDefined()
+  })
 })
