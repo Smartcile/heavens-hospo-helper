@@ -35,6 +35,12 @@ describe('/api/admin/suppliers', () => {
         venueId: 'v1',
         dropOffGuide: { id: 'g2', title: 'DELETED GUIDE', status: 'PUBLISHED', guideType: 'SUPPLIER_INFO', deletedAt: new Date() },
       },
+      {
+        id: 's4',
+        name: 'RE-TYPED SUPPLIER',
+        venueId: 'v1',
+        dropOffGuide: { id: 'g4', title: 'NOW A HOW TO', status: 'PUBLISHED', guideType: 'HOW_TO', deletedAt: null },
+      },
       { id: 's3', name: 'NO GUIDE', venueId: 'v1', dropOffGuide: null },
     ])
   })
@@ -57,7 +63,7 @@ describe('/api/admin/suppliers', () => {
     expect(prisma.supplier.findMany).not.toHaveBeenCalled()
   })
 
-  it('returns the live drop-off guide and hides a soft-deleted one', async () => {
+  it('returns the live drop-off guide and hides a soft-deleted or re-typed one', async () => {
     const res = await GET(request())
     const body = await res.json()
 
@@ -76,6 +82,7 @@ describe('/api/admin/suppliers', () => {
     })
     expect(body[1].dropOffGuide).toBeNull()
     expect(body[2].dropOffGuide).toBeNull()
+    expect(body[3].dropOffGuide).toBeNull()
   })
 
   it('locks a manager to their own venue', async () => {

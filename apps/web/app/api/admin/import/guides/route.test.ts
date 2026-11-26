@@ -25,6 +25,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
 
+import { parseGuideImportAnswer } from '@/lib/import/guide'
 import { GET, POST } from './route'
 
 const getReq = (url = 'http://localhost/api/admin/import/guides') =>
@@ -219,6 +220,37 @@ describe('POST /api/admin/import/guides', () => {
       requiresSignOff: false,
     })
     expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('preserves the type and links when the adapter omits guideType on a re-import', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+    const parsed = parseGuideImportAnswer(JSON.stringify({
+      guides: [{ title: 'BIDFOOD DROP-OFF', audiences: [{ kind: 'SECTION', name: 'BAR' }] }],
+    }))
+    if ('error' in parsed) throw new Error(parsed.error)
+
+    const res = await POST(postReq({
+      rows: [{ ...parsed.rows[0], action: 'UPDATE', targetId: 'g1', values: { ...parsed.rows[0].values, steps: [] } }],
+    }))
+
+    expect(res.status).toBe(200)
+    expect(prisma.guide.update.mock.calls[0][0].data).toMatchObject({
+      guideType: 'SUPPLIER_INFO',
+      isTracked: false,
+      requiresSignOff: false,
+    })
+    expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not unlink suppliers from a CREATE row that carries a targetId', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+
+    await POST(postReq({
+      rows: [row({ action: 'CREATE', targetId: 'g1', values: { ...row().values, guideType: 'HOW_TO' } })],
+    }))
+
+    expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+    expect(prisma.guide.create).toHaveBeenCalled()
   })
 
   it('clears supplier links when an import re-types a SUPPLIER_INFO guide', async () => {

@@ -207,4 +207,14 @@ describe('/api/worker/guides/[id]', () => {
     expect(db.supplier.count).toHaveBeenCalledWith({ where: { dropOffGuideId: 'g1' } })
     expect(db.guide.update).not.toHaveBeenCalled()
   })
+
+  it('allows a re-type when no supplier points at the guide', async () => {
+    db.guide.findUnique.mockResolvedValue({ ...storedGuide, guideType: 'SUPPLIER_INFO' })
+    db.supplier.count.mockResolvedValue(0)
+
+    const res = await PUT(jsonRequest({ guideType: 'HOW_TO' }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    expect(db.guide.update.mock.calls[0][0].data).toMatchObject({ guideType: 'HOW_TO' })
+  })
 })

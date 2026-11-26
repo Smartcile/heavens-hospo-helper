@@ -21,12 +21,14 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { name: 'asc' },
   })
-  // A soft-deleted guide must never leave behind a link to a dead page.
+  // Only a live SUPPLIER_INFO guide is drop-off info. A soft-deleted or
+  // re-typed guide must never make Settings advertise instructions the worker
+  // delivery screen would hide.
   return NextResponse.json(
     suppliers.map(({ dropOffGuide, ...supplier }) => ({
       ...supplier,
       dropOffGuide:
-        dropOffGuide && !dropOffGuide.deletedAt
+        dropOffGuide && !dropOffGuide.deletedAt && dropOffGuide.guideType === 'SUPPLIER_INFO'
           ? {
               id: dropOffGuide.id,
               title: dropOffGuide.title,

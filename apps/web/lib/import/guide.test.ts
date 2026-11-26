@@ -65,6 +65,7 @@ describe('parseGuideImportAnswer', () => {
     expect(result.rows[0].values.title).toBe('MAKING COFFEE')
     expect(result.rows[0].values.steps.map((s) => s.heading)).toEqual(['GRIND', 'BREW'])
     expect(result.rows[0].values.bodyHtml).toBe('')
+    expect(result.rows[0].values.guideType).toBeUndefined()
   })
 
   it('rejects a Markdown document with no title line', () => {
@@ -74,6 +75,13 @@ describe('parseGuideImportAnswer', () => {
   it('accepts a SUPPLIER_INFO type', () => {
     const rows = parseAndRows([{ title: 'BIDFOOD DROP-OFF', guideType: 'SUPPLIER_INFO', audiences: [] }])
     expect(rows[0].values.guideType).toBe('SUPPLIER_INFO')
+    expect(rows[0].issues.some((i) => i.code === 'GUIDE_TYPE_INVALID')).toBe(false)
+  })
+
+  it('leaves guideType unset when the source omits it', () => {
+    const rows = parseAndRows([{ title: 'BIDFOOD DROP-OFF', audiences: [] }])
+
+    expect(rows[0].values.guideType).toBeUndefined()
     expect(rows[0].issues.some((i) => i.code === 'GUIDE_TYPE_INVALID')).toBe(false)
   })
 
