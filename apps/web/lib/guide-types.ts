@@ -41,7 +41,7 @@ export function isProductReference(value: string | null | undefined): boolean {
 
 /**
  * A supplier guide is reference-only: a supplier points at it from the
- * delivery screen, so it is never tracked, assigned or used for sign-off.
+ * delivery screen, so it is never tracked and never used for sign-off.
  */
 export function isSupplierInfo(value: string | null | undefined): boolean {
   return value === 'SUPPLIER_INFO'

@@ -94,6 +94,26 @@ describe('WorkerDeliveriesClient', () => {
     expect(screen.getByText(/BACK DOOR/)).toBeDefined()
   })
 
+  it('hides drop-off instructions for an unpublished guide', async () => {
+    const withDraft = {
+      ...payload,
+      suppliers: [
+        { id: 's1', name: 'BIDFOOD', dropOffGuide: { id: 'g3', title: 'DRAFT DROP-OFF', status: 'DRAFT' } },
+      ],
+    }
+    mockRoutes({ deliveries: withDraft })
+
+    render(<WorkerDeliveriesClient />)
+
+    await screen.findByText('DELIVERIES')
+    fireEvent.click(screen.getByText('+ RECEIVE'))
+
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.change(combos[0], { target: { value: 's1' } })
+
+    expect(screen.queryByText('DROP-OFF INSTRUCTIONS')).toBeNull()
+  })
+
   it('POSTs the receipt with product, temp and verdict fields', async () => {
     const fetchMock = mockRoutes({ deliveries: payload })
 

@@ -73,6 +73,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isSupplierInfo(effectiveGuideType)) {
     updates.isTracked = false
     updates.requiresSignOff = false
+  } else if (isSupplierInfo(existing.guideType)) {
+    // A linked supplier guide must not be re-typed away from SUPPLIER_INFO.
+    const linked = await prisma.supplier.count({ where: { dropOffGuideId: params.id } })
+    if (linked > 0) {
+      return NextResponse.json(
+        { error: 'UNLINK THIS GUIDE FROM ITS SUPPLIERS BEFORE CHANGING ITS TYPE' },
+        { status: 409 },
+      )
+    }
   }
 
   // Filing a guide into a folder (the worker folder drag-and-drop) — the

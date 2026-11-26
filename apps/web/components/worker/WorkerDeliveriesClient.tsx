@@ -241,7 +241,7 @@ export function WorkerDeliveriesClient() {
             {!supplierId && (
               <Input label="SUPPLIER NAME" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="E.G. BIDFOOD" />
             )}
-            {selectedSupplier?.dropOffGuide && (
+            {selectedSupplier?.dropOffGuide?.status === 'PUBLISHED' && (
               <button
                 type="button"
                 onClick={() => setGuideId(selectedSupplier.dropOffGuide!.id)}

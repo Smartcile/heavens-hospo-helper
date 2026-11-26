@@ -112,6 +112,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isSupplierInfo(effectiveGuideType)) {
     updates.isTracked = false
     updates.requiresSignOff = false
+  } else if (isSupplierInfo(existing.guideType)) {
+    // A linked supplier guide must not be re-typed away from SUPPLIER_INFO:
+    // /w/deliveries would keep offering it while the supplier picker rejects it.
+    const linked = await prisma.supplier.count({ where: { dropOffGuideId: params.id } })
+    if (linked > 0) {
+      return NextResponse.json(
+        { error: 'UNLINK THIS GUIDE FROM ITS SUPPLIERS BEFORE CHANGING ITS TYPE' },
+        { status: 409 },
+      )
+    }
   }
 
   // Steps are diffed by id rather than deleted and recreated, so step ids stay

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { db, getWorkerSession, workerGuideAccess, postRetrainNotice } = vi.hoisted(() => ({
   db: {
     guide: { findUnique: vi.fn(), update: vi.fn() },
+    supplier: { count: vi.fn() },
     guideStep: { findMany: vi.fn() },
     guideStepLink: {
       deleteMany: vi.fn(() => Promise.resolve({})),
@@ -63,6 +64,7 @@ describe('/api/worker/guides/[id]', () => {
     getWorkerSession.mockResolvedValue(session)
     workerGuideAccess.mockResolvedValue({ canEdit: true, canPublish: true })
     db.guide.findUnique.mockResolvedValue(storedGuide)
+    db.supplier.count.mockResolvedValue(0)
     db.guideStep.findMany.mockResolvedValue([{ id: 's1' }])
     db.guide.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       ...data,
@@ -182,5 +184,27 @@ describe('/api/worker/guides/[id]', () => {
 
     expect(res.status).toBe(200)
     expect(postRetrainNotice).toHaveBeenCalled()
+  })
+
+  it('keeps a stored SUPPLIER_INFO guide reference-only when the type is omitted', async () => {
+    db.guide.findUnique.mockResolvedValue({ ...storedGuide, guideType: 'SUPPLIER_INFO' })
+
+    const res = await PUT(jsonRequest({ title: 'BIDFOOD DROP-OFF', isTracked: true, requiresSignOff: true }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    const data = db.guide.update.mock.calls[0][0].data as Record<string, unknown>
+    expect(data.isTracked).toBe(false)
+    expect(data.requiresSignOff).toBe(false)
+  })
+
+  it('refuses to re-type a guide that suppliers still point at', async () => {
+    db.guide.findUnique.mockResolvedValue({ ...storedGuide, guideType: 'SUPPLIER_INFO' })
+    db.supplier.count.mockResolvedValue(1)
+
+    const res = await PUT(jsonRequest({ guideType: 'HOW_TO' }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(409)
+    expect(db.supplier.count).toHaveBeenCalledWith({ where: { dropOffGuideId: 'g1' } })
+    expect(db.guide.update).not.toHaveBeenCalled()
   })
 })

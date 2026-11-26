@@ -26,17 +26,22 @@ describe('GET /api/worker/deliveries', () => {
       {
         id: 's1',
         name: 'BIDFOOD',
-        dropOffGuide: { id: 'g1', title: 'BIDFOOD DROP-OFF', status: 'PUBLISHED', deletedAt: null },
+        dropOffGuide: { id: 'g1', title: 'BIDFOOD DROP-OFF', status: 'PUBLISHED', guideType: 'SUPPLIER_INFO', deletedAt: null },
       },
       {
         id: 's2',
         name: 'NEW WORLD',
-        dropOffGuide: { id: 'g2', title: 'DRAFT DROP-OFF', status: 'DRAFT', deletedAt: null },
+        dropOffGuide: { id: 'g2', title: 'DRAFT DROP-OFF', status: 'DRAFT', guideType: 'SUPPLIER_INFO', deletedAt: null },
       },
       {
         id: 's3',
         name: 'OLD SUPPLIER',
-        dropOffGuide: { id: 'g3', title: 'DELETED DROP-OFF', status: 'PUBLISHED', deletedAt: new Date() },
+        dropOffGuide: { id: 'g3', title: 'DELETED DROP-OFF', status: 'PUBLISHED', guideType: 'SUPPLIER_INFO', deletedAt: new Date() },
+      },
+      {
+        id: 's5',
+        name: 'RE-TYPED SUPPLIER',
+        dropOffGuide: { id: 'g4', title: 'NOW A HOW TO', status: 'PUBLISHED', guideType: 'HOW_TO', deletedAt: null },
       },
       { id: 's4', name: 'NO GUIDE', dropOffGuide: null },
     ])
@@ -60,7 +65,7 @@ describe('GET /api/worker/deliveries', () => {
       expect.objectContaining({
         where: { venueId: 'v1', deletedAt: null, isActive: true },
         select: expect.objectContaining({
-          dropOffGuide: { select: { id: true, title: true, status: true, deletedAt: true } },
+          dropOffGuide: { select: { id: true, title: true, status: true, guideType: true, deletedAt: true } },
         }),
       }),
     )
@@ -68,6 +73,7 @@ describe('GET /api/worker/deliveries', () => {
       { id: 's1', name: 'BIDFOOD', dropOffGuide: { id: 'g1', title: 'BIDFOOD DROP-OFF', status: 'PUBLISHED' } },
       { id: 's2', name: 'NEW WORLD', dropOffGuide: null },
       { id: 's3', name: 'OLD SUPPLIER', dropOffGuide: null },
+      { id: 's5', name: 'RE-TYPED SUPPLIER', dropOffGuide: null },
       { id: 's4', name: 'NO GUIDE', dropOffGuide: null },
     ])
   })
