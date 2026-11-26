@@ -115,8 +115,25 @@ function normaliseAttachments(value: unknown): string[] | null {
   return urls
 }
 
-function isStoredUrl(url: string): boolean {
-  return url.startsWith('/api/upload/') || url.startsWith('/uploads/') || /^https?:\/\//i.test(url)
+/**
+ * Attachments must be files in the app's own upload store. The PDF route reads
+ * them server-side, so a remote URL would be an SSRF hole (and a way to satisfy
+ * the mandatory-photo rule without uploading anything).
+ */
+export function isStoredBreachAttachment(url: string): boolean {
+  for (const prefix of ['/api/upload/', '/uploads/']) {
+    if (!url.startsWith(prefix)) continue
+    const basename = url.slice(prefix.length)
+    return Boolean(
+      basename &&
+        !basename.includes('/') &&
+        !basename.includes('\\') &&
+        !basename.includes('..') &&
+        !basename.includes('?') &&
+        !basename.includes('#'),
+    )
+  }
+  return false
 }
 
 /**
@@ -170,7 +187,9 @@ export function validateBreachNotice(
   if (attachments.length > BREACH_ATTACHMENT_LIMIT) {
     return { ok: false, error: `YOU CAN ADD UP TO ${BREACH_ATTACHMENT_LIMIT} FILES` }
   }
-  if (!attachments.every(isStoredUrl)) return { ok: false, error: 'ONE OF THE ATTACHMENTS IS NOT VALID' }
+  if (!attachments.every(isStoredBreachAttachment)) {
+    return { ok: false, error: 'ATTACHMENTS MUST BE FILES UPLOADED TO THE APP' }
+  }
   if (!attachments.some(isBreachPhoto)) {
     return { ok: false, error: 'AT LEAST ONE ATTACHMENT MUST BE A PHOTO' }
   }

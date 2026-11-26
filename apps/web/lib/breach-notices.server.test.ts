@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({
   prisma: {
     staff: { findFirst: vi.fn(), findUnique: vi.fn() },
+    staffVenue: { findFirst: vi.fn() },
     breachNotice: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
-    staffParkingPlate: { findMany: vi.fn(), findFirst: vi.fn() },
-    staffParkingPlateRequest: { findFirst: vi.fn(), create: vi.fn() },
+    staffParkingPlate: { findMany: vi.fn() },
+    staffParkingPlateRequest: { findMany: vi.fn(), create: vi.fn() },
   },
 }))
 
@@ -33,7 +34,8 @@ function notice(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  prisma.staff.findFirst.mockResolvedValue({ id: 's1' })
+  prisma.staff.findFirst.mockResolvedValue({ id: 's1', role: 'STAFF', venueId: 'v1' })
+  prisma.staffVenue.findFirst.mockResolvedValue(null)
   prisma.breachNotice.findFirst.mockResolvedValue(null)
   prisma.breachNotice.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
     notice({ ...data }),
@@ -41,8 +43,7 @@ beforeEach(() => {
   prisma.breachNotice.updateMany.mockResolvedValue({ count: 1 })
   prisma.breachNotice.findUnique.mockResolvedValue(notice({ status: 'WAIVED' }))
   prisma.staffParkingPlate.findMany.mockResolvedValue([])
-  prisma.staffParkingPlate.findFirst.mockResolvedValue(null)
-  prisma.staffParkingPlateRequest.findFirst.mockResolvedValue(null)
+  prisma.staffParkingPlateRequest.findMany.mockResolvedValue([])
   prisma.staffParkingPlateRequest.create.mockResolvedValue({ id: 'r1' })
 })
 
@@ -81,6 +82,74 @@ describe('createBreachNotice', () => {
     })
     expect(result).toMatchObject({ ok: false, status: 403 })
     expect(prisma.breachNotice.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a remote attachment URL before persisting', async () => {
+    const result = await createBreachNotice({
+      venueId: 'v1',
+      submittedById: 's1',
+      input: { ...input, attachmentUrls: ['http://169.254.169.254/latest/meta-data/'] },
+      today: '2026-11-26',
+      allowClient: false,
+    })
+    expect(result).toMatchObject({ ok: false, status: 400 })
+    expect(prisma.breachNotice.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a submitter whose staff row does not exist', async () => {
+    prisma.staff.findFirst.mockResolvedValue(null)
+    const result = await createBreachNotice({
+      venueId: 'v1',
+      submittedById: 'ghost',
+      input,
+      today: '2026-11-26',
+      allowClient: false,
+    })
+    expect(result).toMatchObject({ ok: false, status: 403 })
+    expect(prisma.breachNotice.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a cross-venue submitter with no StaffVenue link', async () => {
+    prisma.staff.findFirst.mockResolvedValue({ id: 's1', role: 'STAFF', venueId: 'v2' })
+    prisma.staffVenue.findFirst.mockResolvedValue(null)
+    const result = await createBreachNotice({
+      venueId: 'v1',
+      submittedById: 's1',
+      input,
+      today: '2026-11-26',
+      allowClient: false,
+    })
+    expect(result).toMatchObject({ ok: false, status: 403 })
+    expect(prisma.breachNotice.create).not.toHaveBeenCalled()
+  })
+
+  it('accepts a submitter linked to the acting venue through StaffVenue', async () => {
+    prisma.staff.findFirst.mockResolvedValue({ id: 's1', role: 'STAFF', venueId: 'v2' })
+    prisma.staffVenue.findFirst.mockResolvedValue({ id: 'sv1' })
+    const result = await createBreachNotice({
+      venueId: 'v1',
+      submittedById: 's1',
+      input,
+      today: '2026-11-26',
+      allowClient: false,
+    })
+    expect(result.ok).toBe(true)
+    expect(prisma.breachNotice.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ venueId: 'v1', submittedById: 's1' }),
+    })
+  })
+
+  it('accepts an ADMIN recording a notice at another venue', async () => {
+    prisma.staff.findFirst.mockResolvedValue({ id: 'a1', role: 'ADMIN', venueId: 'v2' })
+    const result = await createBreachNotice({
+      venueId: 'v1',
+      submittedById: 'a1',
+      input: { ...input, subjectType: 'CLIENT', clientName: 'Pat' },
+      today: '2026-11-26',
+      allowClient: true,
+    })
+    expect(result.ok).toBe(true)
+    expect(prisma.staffVenue.findFirst).not.toHaveBeenCalled()
   })
 
   it('requires review permission for a CLIENT notice and keeps no staff subject', async () => {
@@ -146,19 +215,24 @@ describe('createBreachNotice', () => {
 
 describe('autoFileBreachPlateRequest', () => {
   it('does not duplicate an already-approved plate', async () => {
-    prisma.staffParkingPlate.findMany.mockResolvedValue([{ plate: 'AB123' }])
+    prisma.staffParkingPlate.findMany
+      .mockResolvedValueOnce([{ id: 'p1', plate: 'AB123', status: 'ACTIVE' }])
+      .mockResolvedValueOnce([])
     expect(await autoFileBreachPlateRequest({ venueId: 'v1', staffId: 's1', plate: 'ab123' })).toBe(false)
     expect(prisma.staffParkingPlateRequest.create).not.toHaveBeenCalled()
   })
 
   it('does not duplicate a pending request', async () => {
-    prisma.staffParkingPlateRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    prisma.staffParkingPlate.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    prisma.staffParkingPlateRequest.findMany.mockResolvedValue([{ plate: 'AB123' }])
     expect(await autoFileBreachPlateRequest({ venueId: 'v1', staffId: 's1', plate: 'AB123' })).toBe(false)
     expect(prisma.staffParkingPlateRequest.create).not.toHaveBeenCalled()
   })
 
   it('does not claim a plate already active for someone else', async () => {
-    prisma.staffParkingPlate.findFirst.mockResolvedValue({ id: 'p2' })
+    prisma.staffParkingPlate.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ staffId: 's2', plate: 'AB123' }])
     expect(await autoFileBreachPlateRequest({ venueId: 'v1', staffId: 's1', plate: 'AB123' })).toBe(false)
     expect(prisma.staffParkingPlateRequest.create).not.toHaveBeenCalled()
   })
@@ -221,7 +295,7 @@ describe('withdrawBreachNotice', () => {
     expect(result.ok).toBe(true)
     expect(prisma.breachNotice.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ id: 'n1', status: 'SUBMITTED' }),
-      data: expect.objectContaining({ status: 'WITHDRAWN' }),
+      data: { status: 'WITHDRAWN' },
     })
   })
 })

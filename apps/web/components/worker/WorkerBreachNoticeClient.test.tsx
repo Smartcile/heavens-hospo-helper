@@ -86,9 +86,10 @@ describe('WorkerBreachNoticeClient', () => {
     await screen.findByText('BREACH NOTICES')
     fireEvent.click(screen.getByRole('button', { name: '+ NEW' }))
 
-    // The manager form defaults to CLIENT and offers both subjects.
-    expect(screen.getByRole('button', { name: 'STAFF' })).toBeInTheDocument()
+    // Managers get both subjects, with STAFF as the everyday default.
+    expect(screen.getByRole('button', { name: 'STAFF' }).className).toContain('border-white')
     expect(screen.getByRole('button', { name: 'CLIENT' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'CLIENT' }))
 
     fireEvent.change(screen.getByPlaceholderText('ABC123'), { target: { value: 'abc123' } })
     fireEvent.change(screen.getByPlaceholderText(/Ticket/), { target: { value: 'Ticket 998877' } })

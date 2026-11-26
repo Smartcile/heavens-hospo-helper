@@ -40,6 +40,7 @@ const SHORT_KIND: Record<string, string> = {
   inventory: 'INVENTORY',
   menu: 'MENU',
   'woo-image': 'WOO',
+  'breach-notice': 'BREACH',
 }
 
 const PREVIEW_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'pdf'])

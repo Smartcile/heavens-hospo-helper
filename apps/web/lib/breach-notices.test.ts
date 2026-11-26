@@ -75,6 +75,18 @@ describe('validateBreachNotice', () => {
     ).toBe(true)
   })
 
+  it('only accepts files in the app upload store (no SSRF via remote URLs)', () => {
+    const remote = ['http://169.254.169.254/latest/meta-data/']
+    expect(validateBreachNotice({ ...base, attachmentUrls: remote })).toMatchObject({
+      ok: false,
+      error: 'ATTACHMENTS MUST BE FILES UPLOADED TO THE APP',
+    })
+    expect(
+      validateBreachNotice({ ...base, attachmentUrls: ['/api/upload/../secret.jpg'] }),
+    ).toMatchObject({ ok: false })
+    expect(validateBreachNotice({ ...base, attachmentUrls: ['/uploads/legacy.jpg'] }).ok).toBe(true)
+  })
+
   it('keeps client details only on a client notice', () => {
     const staff = validateBreachNotice({ ...base, clientName: 'Pat', clientReference: 'X1' })
     expect(staff.ok && staff.value.clientName).toBeNull()

@@ -5,8 +5,10 @@
 
 import { prisma, type BreachNotice } from '@hospo-ops/db'
 import { normalisePlate } from './parking'
+import { PLATE_REASON_MAX, plateSubmissionError } from './staff-parking'
 import {
   breachDuplicateKey,
+  isStoredBreachAttachment,
   reviewActionToStatus,
   reviewReasonError,
   reviewTransitionError,
@@ -15,8 +17,6 @@ import {
   type BreachNoticeInput,
   type BreachReviewAction,
 } from './breach-notices'
-
-const PLATE_REASON_MAX = 500
 
 export interface CreateBreachNoticeArgs {
   venueId: string
@@ -66,32 +66,41 @@ export async function autoFileBreachPlateRequest(input: {
     const plate = normalisePlate(input.plate)
     if (!plate) return false
 
-    const active = await prisma.staffParkingPlate.findMany({
-      where: { venueId: input.venueId, staffId: input.staffId, status: 'ACTIVE', deletedAt: null },
-      select: { plate: true },
-    })
-    if (active.some((row) => normalisePlate(row.plate) === plate)) return false
-
-    const pending = await prisma.staffParkingPlateRequest.findFirst({
-      where: { venueId: input.venueId, staffId: input.staffId, plate, status: 'PENDING', deletedAt: null },
-      select: { id: true },
-    })
-    if (pending) return false
-
-    const otherOwner = await prisma.staffParkingPlate.findFirst({
-      where: {
-        venueId: input.venueId,
-        plate,
-        status: 'ACTIVE',
-        staffId: { not: input.staffId },
-        deletedAt: null,
-      },
-      select: { id: true },
-    })
-    if (otherOwner) return false
+    const [plates, pending, otherOwners] = await Promise.all([
+      prisma.staffParkingPlate.findMany({
+        where: { venueId: input.venueId, staffId: input.staffId, deletedAt: null },
+        select: { id: true, plate: true, status: true },
+      }),
+      prisma.staffParkingPlateRequest.findMany({
+        where: { venueId: input.venueId, staffId: input.staffId, status: 'PENDING', deletedAt: null },
+        select: { plate: true },
+      }),
+      prisma.staffParkingPlate.findMany({
+        where: {
+          venueId: input.venueId,
+          plate,
+          status: 'ACTIVE',
+          staffId: { not: input.staffId },
+          deletedAt: null,
+        },
+        select: { staffId: true, plate: true },
+      }),
+    ])
 
     const label = (input.noticeLabel ?? '').trim()
     const reason = `BREACH NOTICE${label ? ` ${label}` : ''} - PLATE FROM NOTICE`.slice(0, PLATE_REASON_MAX)
+    // The same rules a worker-submitted plate request uses (own active plate,
+    // pending request, another owner, reason length).
+    const error = plateSubmissionError({
+      plate,
+      reason,
+      activePlates: plates.filter((row) => row.status === 'ACTIVE'),
+      pendingPlates: pending.map((row) => row.plate),
+      otherOwners,
+      staffId: input.staffId,
+    })
+    if (error) return false
+
     await prisma.staffParkingPlateRequest.create({
       data: {
         venueId: input.venueId,
@@ -115,6 +124,12 @@ export async function createBreachNotice(args: CreateBreachNoticeArgs): Promise<
   if (!parsed.ok) return { ok: false, status: 400, error: parsed.error }
 
   const values = parsed.value
+  // Defence in depth: never persist a remote/foreign attachment URL. The PDF
+  // route reads the first photo server-side, so only the app's upload store is
+  // allowed (no http(s), no traversal, no query).
+  if (!values.attachmentUrls.every(isStoredBreachAttachment)) {
+    return { ok: false, status: 400, error: 'ATTACHMENTS MUST BE FILES UPLOADED TO THE APP' }
+  }
   if (values.subjectType === 'CLIENT' && !args.allowClient) {
     return { ok: false, status: 403, error: 'CLIENT NOTICES ARE FOR MANAGERS' }
   }
@@ -127,11 +142,23 @@ export async function createBreachNotice(args: CreateBreachNoticeArgs): Promise<
     return { ok: false, status: 403, error: 'YOU CAN ONLY SUBMIT YOUR OWN STAFF NOTICE' }
   }
 
+  // The person must exist. ADMIN may act across venues; everyone else must
+  // either be based at the acting venue or be explicitly linked to it via
+  // StaffVenue (the shared-venue / multi-venue login path).
   const submitter = await prisma.staff.findFirst({
-    where: { id: args.submittedById, venueId: args.venueId, deletedAt: null },
-    select: { id: true },
+    where: { id: args.submittedById, deletedAt: null },
+    select: { id: true, role: true, venueId: true },
   })
-  if (!submitter) return { ok: false, status: 403, error: 'YOU ARE NOT A STAFF MEMBER AT THIS VENUE' }
+  if (!submitter) return { ok: false, status: 403, error: 'YOU ARE NOT A STAFF MEMBER' }
+  if (submitter.role !== 'ADMIN' && submitter.venueId !== args.venueId) {
+    const linked = await prisma.staffVenue.findFirst({
+      where: { staffId: args.submittedById, venueId: args.venueId },
+      select: { id: true },
+    })
+    if (!linked) {
+      return { ok: false, status: 403, error: 'YOU ARE NOT A STAFF MEMBER AT THIS VENUE' }
+    }
+  }
 
   const reference = values.subjectType === 'CLIENT' ? values.clientReference : null
   const duplicate = reference
@@ -248,7 +275,9 @@ export async function withdrawBreachNotice(args: WithdrawBreachNoticeArgs): Prom
 
   const updated = await prisma.breachNotice.updateMany({
     where: { id: args.id, venueId: args.venueId, status: 'SUBMITTED', deletedAt: null },
-    data: { status: 'WITHDRAWN', reviewedById: args.staffId, reviewedAt: new Date() },
+    // Do not stamp the submitter as the reviewer — a withdrawal is not a
+    // manager decision and must not read as one on the row.
+    data: { status: 'WITHDRAWN' },
   })
   if (updated.count === 0) return { ok: false, status: 409, error: 'THIS NOTICE HAS ALREADY BEEN CLOSED' }
 

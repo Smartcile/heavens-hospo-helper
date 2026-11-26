@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-vi.mock('@/components/ui/PdfViewerModal', () => ({ PdfViewerModal: () => null }))
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: ({ target }: { target: { url: string } | null }) =>
+    target ? <div data-testid="pdf-url">{target.url}</div> : null,
+}))
 
 import { BreachNoticesPanel } from './BreachNoticesPanel'
 
@@ -83,6 +86,22 @@ describe('BreachNoticesPanel', () => {
 
     expect(await screen.findByText('ADD A REASON FOR THIS DECISION')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit)?.method === 'POST')).toBe(false)
+  })
+
+  it('keeps the active venue on the generated PDF URL', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url)
+      if (u.startsWith('/api/admin/breach-notices?')) return json({ items: [STAFF], canReview: true })
+      return json({})
+    })
+    render(<BreachNoticesPanel role="MANAGER" sessionVenueId="v1" />)
+    await screen.findByText('ABC123')
+    fireEvent.click(screen.getByText('ABC123'))
+    fireEvent.click(screen.getByRole('button', { name: 'VIEW NOTICE PDF' }))
+
+    expect((await screen.findByTestId('pdf-url')).textContent).toBe(
+      '/api/admin/breach-notices/n1/pdf?venueId=v1&inline=1',
+    )
   })
 
   it('shows a failed decision inline', async () => {

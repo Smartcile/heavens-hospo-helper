@@ -16,7 +16,7 @@ import {
   isBreachPhoto,
   validateBreachNotice,
 } from '@/lib/breach-notices'
-import { localDayKey } from '@/lib/date-nav'
+import { formatDateDMY, localDayKey } from '@/lib/date-nav'
 import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 interface BreachRow {
@@ -146,7 +146,8 @@ export function WorkerBreachNoticeClient({ initialId }: { initialId?: string }) 
   const today = useMemo(() => localDayKey(), [])
 
   function openNew() {
-    setForm({ ...emptyForm(), subjectType: canUseClient ? 'CLIENT' : 'STAFF' })
+    // STAFF is the everyday path even for a manager; CLIENT is an explicit toggle.
+    setForm({ ...emptyForm(), subjectType: 'STAFF' })
     setAttachments([])
     setUploadError('')
     setFormError('')
@@ -332,7 +333,6 @@ export function WorkerBreachNoticeClient({ initialId }: { initialId?: string }) 
                 <input
                   type="file"
                   accept="image/*,application/pdf"
-                  capture="environment"
                   className="hidden"
                   disabled={uploading}
                   onChange={(e) => { void upload(e.target.files); e.currentTarget.value = '' }}
@@ -370,7 +370,7 @@ export function WorkerBreachNoticeClient({ initialId }: { initialId?: string }) 
 
           <div className="border border-grey-mid p-3 grid grid-cols-2 gap-3">
             {[
-              ['BREACH DATE', selected.breachDate.slice(0, 10)],
+              ['BREACH DATE', formatDateDMY(selected.breachDate.slice(0, 10))],
               ['FINE', money(selected.fineAmount)],
               ['LOCATION', selected.location || '-'],
               ['AUTHORITY', selected.issuingAuthority || '-'],
@@ -467,7 +467,7 @@ export function WorkerBreachNoticeClient({ initialId }: { initialId?: string }) 
                 <Badge variant={STATUS_VARIANT[row.status] ?? 'default'}>{describeBreachStatus(row.status)}</Badge>
               </div>
               <div className="font-mono text-2xs uppercase text-grey-light">
-                {row.subjectType} · {describeBreachKind(row.kind)} · {row.breachDate.slice(0, 10)}
+                {row.subjectType} · {describeBreachKind(row.kind)} · {formatDateDMY(row.breachDate.slice(0, 10))}
                 {row.submittedByName && access.venueWide ? ` · ${row.submittedByName}` : ''}
               </div>
               <p className="font-mono text-xs text-grey-light truncate">{row.noticeDetails}</p>

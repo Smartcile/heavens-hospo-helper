@@ -163,7 +163,7 @@ export function BreachNoticesPanel({
   }
 
   function openGeneratedPdf(row: BreachNoticeRow) {
-    const path = `/api/admin/breach-notices/${row.id}/pdf`
+    const path = `/api/admin/breach-notices/${row.id}/pdf${venueQuery()}`
     setPdfTarget({
       url: inlinePdfUrl(path),
       downloadUrl: path,
