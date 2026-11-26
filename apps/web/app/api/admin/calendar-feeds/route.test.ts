@@ -6,6 +6,7 @@ const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
     calendarFeed: { findFirst: vi.fn(), create: vi.fn(), findMany: vi.fn() },
     area: { findFirst: vi.fn(), findMany: vi.fn() },
     floorPlan: { findMany: vi.fn() },
+    venue: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
   getServerSession: vi.fn(),
@@ -35,6 +36,7 @@ beforeEach(() => {
   })
   prisma.calendarFeed.findFirst.mockResolvedValue(null)
   prisma.area.findFirst.mockResolvedValue({ id: 'a1' })
+  prisma.venue.findMany.mockResolvedValue([{ id: 'v1', name: 'VENUE' }])
   prisma.calendarFeed.create.mockImplementation(async ({ data }: { data: unknown }) => data)
   prisma.$transaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops))
 })
@@ -62,12 +64,14 @@ describe('GET /api/admin/calendar-feeds', () => {
     prisma.area.findMany.mockResolvedValue([
       {
         id: 'a1',
+        venueId: 'v1',
         name: 'FUNCTION ROOM',
         colour: null,
         capacity: 22,
         floorPlanId: null,
         sortOrder: 0,
         notes: null,
+        venueLinks: [],
         _count: { events: 0 },
       },
     ])

@@ -74,6 +74,7 @@ export const eventInclude = {
   menu: { select: { id: true, name: true } },
   service: { select: { id: true, name: true } },
   setup: { select: { id: true, name: true } },
+  area: { select: { id: true, name: true } },
   booking: { select: { id: true, date: true, startTime: true, partySize: true } },
   template: { select: { id: true, name: true } },
   blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -171,6 +172,7 @@ export function buildEventData(
   if (body.menuId !== undefined) data.menuId = nullableStr(body.menuId)
   if (body.serviceId !== undefined) data.serviceId = nullableStr(body.serviceId)
   if (body.setupId !== undefined) data.setupId = nullableStr(body.setupId)
+  if (body.areaId !== undefined) data.areaId = nullableStr(body.areaId)
   if (body.notes !== undefined) data.notes = nullableStr(body.notes)
   if (body.internalNotes !== undefined) data.internalNotes = nullableStr(body.internalNotes)
   if (body.pushToBookings !== undefined) data.pushToBookings = !!body.pushToBookings

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { canAccess, guardAccess } from '@/lib/permissions'
+import { areaVisibleToVenue } from '@/lib/area-scope.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -35,6 +36,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.notes !== undefined) data.notes = body.notes || null
   if (body.source !== undefined) data.source = body.source
   if (body.serviceId !== undefined) data.serviceId = body.serviceId || null
+  if (body.areaId !== undefined) {
+    const areaId = typeof body.areaId === 'string' && body.areaId.trim() ? body.areaId.trim() : null
+    if (areaId && !(await areaVisibleToVenue(areaId, booking.venueId))) {
+      return NextResponse.json({ error: 'UNKNOWN ROOM' }, { status: 400 })
+    }
+    data.areaId = areaId
+  }
 
   if (body.tableIds !== undefined) {
     const ids = Array.isArray(body.tableIds) ? body.tableIds : []

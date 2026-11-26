@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { EVENT_STATUS_VALUES, buildEventData, eventInclude } from '@/lib/events.server'
+import { areaVisibleToVenue } from '@/lib/area-scope.server'
 
 /** GET /api/admin/events — list events for a venue, optionally date/status filtered. */
 export async function GET(req: NextRequest) {
@@ -70,6 +71,12 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error }, { status: 400 })
   if (!data.name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!data.eventDate) return NextResponse.json({ error: 'Event date is required' }, { status: 400 })
+
+  if (typeof data.areaId === 'string' && data.areaId) {
+    if (!(await areaVisibleToVenue(data.areaId, scopedVenueId))) {
+      return NextResponse.json({ error: 'UNKNOWN ROOM' }, { status: 400 })
+    }
+  }
 
   const event = await prisma.event.create({
     data: {

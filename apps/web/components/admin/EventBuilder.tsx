@@ -61,6 +61,8 @@ export interface EventDetail {
   menuId: string | null
   serviceId: string | null
   setupId: string | null
+  /** The physical room this event occupies (#189). */
+  areaId?: string | null
   pushToBookings: boolean
   depositAmount: number | null
   paymentStatus: string
@@ -83,6 +85,8 @@ export interface BeoRefs {
   menuItems: (Option & { price?: number })[]
   services: Option[]
   setups: BeoSetupOption[]
+  /** Physical rooms (owned + shared) for the event's room picker (#189). */
+  areas?: Option[]
 }
 
 interface Draft extends Omit<EventDetail, 'blocks' | 'eventDate' | 'depositAmount'> {
@@ -423,6 +427,12 @@ export function EventBuilder({
             value={draft.setupId ?? ''}
             options={[{ value: '', label: '— NONE —' }, ...refs.setups.map((s) => ({ value: s.id, label: roomSetupLabel(s) }))]}
             onChange={(e) => patch({ setupId: e.target.value || null })}
+          />
+          <Select
+            label="Room"
+            value={draft.areaId ?? ''}
+            options={[{ value: '', label: '— NONE —' }, ...(refs.areas ?? []).map((a) => ({ value: a.id, label: a.name }))]}
+            onChange={(e) => patch({ areaId: e.target.value || null })}
           />
         </div>
 

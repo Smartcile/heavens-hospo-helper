@@ -82,6 +82,12 @@ echo "▸ Linking room feeds to first-class Areas (post-sync)..."
 npm run db:migrate-areas || echo "⚠ Area migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Backfilling shared-room owner links + room on legacy uses (post-sync)..."
+# Adds an owner AreaVenue row for every live Area, then copies the linked
+# FloorPlanSetup's area onto Bookings/Events that have none. Idempotent.
+npm run db:migrate-area-sharing || echo "⚠ Area sharing backfill failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Backfilling availability notes into comment threads (post-sync)..."
 # Each old notes / reason / reviewNote value becomes one AvailabilityComment row
 # with its original author + timestamp. Deterministic legacyRef values make the

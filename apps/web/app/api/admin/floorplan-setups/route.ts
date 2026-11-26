@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { areaWhereForVenues } from '@/lib/area-scope'
 
 /**
  * Venue-scoped floor plan setups, for pickers (Services → TABLE PLAN).
@@ -21,7 +22,14 @@ export async function GET(req: NextRequest) {
   if (!venueId) return NextResponse.json({ error: 'venueId required' }, { status: 400 })
 
   const setups = await prisma.floorPlanSetup.findMany({
-    where: { deletedAt: null, floorPlan: { venueId, deletedAt: null } },
+    where: {
+      deletedAt: null,
+      // Plans owned by this venue, plus setups for a room shared into it.
+      OR: [
+        { floorPlan: { venueId, deletedAt: null } },
+        { area: { deletedAt: null, ...areaWhereForVenues([venueId]) } },
+      ],
+    },
     select: {
       id: true,
       name: true,

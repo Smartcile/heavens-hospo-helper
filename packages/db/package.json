@@ -15,6 +15,7 @@
     "db:migrate-timeoff": "tsx prisma/migrate-timeoff-to-availability.ts",
     "db:migrate-calendar-feeds": "tsx prisma/migrate-calendar-feeds.ts",
     "db:migrate-areas": "tsx prisma/migrate-areas.ts",
+    "db:migrate-area-sharing": "tsx prisma/migrate-area-sharing.ts",
     "db:migrate-availability-comments": "tsx prisma/migrate-availability-comments.ts",
     "db:migrate-tips-shares": "tsx prisma/migrate-tips-shares.ts",
     "db:backfill-guide-audiences": "tsx prisma/backfill-guide-audiences.ts",

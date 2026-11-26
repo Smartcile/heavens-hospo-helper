@@ -390,6 +390,7 @@ model Venue {
   calendarEvents      CalendarEvent[]
   calendarFeeds       CalendarFeed[]
   areas               Area[]
+  areaVenues          AreaVenue[]
   eventStaffing       EventStaffing[]
   openShifts          OpenShift[]
   openShiftClaims     OpenShiftClaim[]
@@ -1293,9 +1294,34 @@ model Area {
     feeds     CalendarFeed[]
     events    CalendarEvent[]
     setups    FloorPlanSetup[]
+    // Room sharing (#189). `venueId` above is still the owner; these rows add
+    // the venues the room is shared with (and an owner row for uniform reads).
+    venueLinks AreaVenue[]
+    bookings   Booking[]
+    beoEvents  Event[]
 
   @@index([venueId])
   @@index([venueId, sortOrder])
+}
+
+// A venue a room (Area) is shared with. The Area's own `venueId` stays the
+// owner, so every existing single-venue read keeps working; reads that need
+// the union use `areaWhereForVenues()` in apps/web/lib/area-scope.ts.
+model AreaVenue {
+  id        String    @id @default(uuid())
+  areaId    String
+  venueId   String
+  isOwner   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  area  Area  @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([areaId, venueId])
+  @@index([venueId])
+  @@index([areaId])
 }
 
 // An event imported from an external calendar feed (Google Calendar / any iCal).
@@ -1481,6 +1507,7 @@ model Booking {
   calendarEventId String? // links to CalendarEvent for calendar display
   floorPlanSlug   String? // which floor plan layout this booking uses
   seatingSetupId  String? // FK to FloorPlanSetup for the generated table layout
+  areaId          String? // the room this booking occupies (#189)
   serviceId       String? // which dated Service this booking was made for
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -1488,6 +1515,7 @@ model Booking {
 
   venue         Venue          @relation(fields: [venueId], references: [id])
   calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
+  area          Area?          @relation(fields: [areaId], references: [id], onDelete: SetNull)
   service       Service?       @relation(fields: [serviceId], references: [id])
   tables        BookingTable[]
   orders        WooOrder[]
@@ -1495,6 +1523,7 @@ model Booking {
 
   @@index([venueId, date])
   @@index([venueId])
+  @@index([areaId])
 }
 
 model BookingTable {
@@ -4295,6 +4324,7 @@ model Event {
   menuId          String?
   serviceId       String?
   setupId         String? // FloorPlanSetup — the room layout for this event
+  areaId          String? // the physical room this event occupies (#189)
   bookingId       String? // the seated reservation, when one exists
   calendarEventId String?
   templateId      String? // provenance — which BeoTemplate this was built from
@@ -4326,6 +4356,7 @@ model Event {
   menu          Menu?              @relation(fields: [menuId], references: [id])
   service       Service?           @relation(fields: [serviceId], references: [id])
   setup         FloorPlanSetup?    @relation(fields: [setupId], references: [id])
+  area          Area?              @relation(fields: [areaId], references: [id], onDelete: SetNull)
   booking       Booking?           @relation(fields: [bookingId], references: [id])
   calendarEvent CalendarEvent?     @relation(fields: [calendarEventId], references: [id])
   template      BeoTemplate?       @relation(fields: [templateId], references: [id])
@@ -4337,6 +4368,7 @@ model Event {
   @@index([venueId])
   @@index([customerId])
   @@index([status])
+  @@index([areaId])
 }
 
 // One composable section of a BEO. `type` is a library key defined in

@@ -114,12 +114,15 @@ export async function pushEventToBookings(
       blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
       customer: { select: { id: true, name: true } },
       service: { select: { id: true, name: true, tablePlanSetupId: true } },
-      setup: { select: { id: true, name: true, floorPlan: { select: { slug: true } } } },
+      setup: { select: { id: true, name: true, areaId: true, floorPlan: { select: { slug: true } } } },
     },
   })
   if (!event) return { ok: false, reason: 'NOT_FOUND' }
   if (!event.startTime || !event.endTime) return { ok: false, reason: 'NO_TIMES' }
   if (!event.guestCount || event.guestCount <= 0) return { ok: false, reason: 'NO_GUESTS' }
+
+  // The room this event occupies: its own area, else the selected setup's area.
+  const roomId = event.areaId ?? event.setup?.areaId ?? null
 
   const day = dateKey(event.eventDate)
   const contactName = (event.contactName || event.customer?.name || event.name).toUpperCase().trim()
@@ -134,6 +137,7 @@ export async function pushEventToBookings(
       title: event.name,
       startsAt,
       endsAt,
+      areaId: roomId,
       floorPlanSlug: event.setup?.floorPlan?.slug ?? null,
       floorPlanName: event.setup?.name ?? null,
       deletedAt: null,
@@ -146,6 +150,7 @@ export async function pushEventToBookings(
       description: event.eventType ?? undefined,
       startsAt,
       endsAt,
+      areaId: roomId,
       floorPlanSlug: event.setup?.floorPlan?.slug ?? null,
       floorPlanName: event.setup?.name ?? null,
     },
@@ -203,6 +208,7 @@ export async function pushEventToBookings(
     serviceId: event.serviceId,
     seatingSetupId,
     floorPlanSlug,
+    areaId: roomId,
     calendarEventId: calEvent.id,
     deletedAt: null,
   }
