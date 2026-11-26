@@ -69,7 +69,14 @@ export async function GET(req: NextRequest) {
 
   if (!plan) return NextResponse.json({ plan: null, elements: [] })
 
+  // The reference underlay is an editor aid: never hand it to the worker view
+  // (or any future renderer) unless that surface explicitly opts in.
   const result: Record<string, unknown> = { ...plan }
+  delete result.backgroundImageUrl
+  delete result.backgroundOpacity
+  delete result.backgroundOffsetX
+  delete result.backgroundOffsetY
+  delete result.backgroundScale
   if (eventBanner) result.eventBanner = eventBanner
 
   return NextResponse.json(result)

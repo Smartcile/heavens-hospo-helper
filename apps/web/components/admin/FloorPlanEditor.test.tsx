@@ -61,10 +61,40 @@ function mockPlanWithElement() {
   }) as typeof fetch)
 }
 
+/** Load a plan carrying a reference-image underlay and record PUT bodies. */
+function mockPlanWithUnderlay(puts: { url: string; body: Record<string, unknown> }[]) {
+  const underlayPlan = {
+    roomWidth: 2000,
+    roomDepth: 1500,
+    gridUnit: 50,
+    elements: [] as any[],
+    zones: [] as any[],
+    backgroundImageUrl: '/api/upload/drawing.png',
+    backgroundOpacity: 0.5,
+    backgroundOffsetX: 0,
+    backgroundOffsetY: 0,
+    backgroundScale: 1,
+  }
+  vi.spyOn(global, 'fetch').mockImplementation(((url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') {
+      puts.push({ url, body: JSON.parse(String(init.body ?? '{}')) })
+      return Promise.resolve({ ok: true, json: async () => ({ saved: [] }) } as Response)
+    }
+    if (init?.method && init.method !== 'GET') {
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response)
+    }
+    if (url === '/api/admin/floorplan/plan-1') {
+      return Promise.resolve({ ok: true, json: async () => underlayPlan } as Response)
+    }
+    return Promise.resolve({ ok: true, json: async () => [] } as Response)
+  }) as typeof fetch)
+}
+
 function numberInputValues(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll('input[type="number"]')).map((el) => (el as HTMLInputElement).value)
 }
 
+/** Layer list row → select the wall element. */
 async function selectWall(container: HTMLElement) {
   const label = await waitFor(() => {
     const el = Array.from(container.querySelectorAll('span')).find((s) => s.textContent === 'WALL A')
@@ -231,5 +261,138 @@ describe('FloorPlanEditor', () => {
     await waitFor(() => expect(queryByText('WALL A')).toBeNull())
     fireEvent.keyDown(canvasRoot(container), { key: 'z', ctrlKey: true })
     await waitFor(() => expect(getByText('WALL A')).toBeTruthy())
+  })
+
+  it('loads the reference underlay and passes it to the canvas', async () => {
+    canvas.props = null
+    mockPlanWithUnderlay([])
+    const { getByTestId } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+
+    await waitFor(() => expect(canvas.props?.background?.imageUrl).toBe('/api/upload/drawing.png'))
+    expect(canvas.props.background.opacity).toBe(0.5)
+    expect(canvas.props.backgroundVisible).toBe(true)
+    expect(getByTestId('underlay-panel').textContent).toContain('SHOWN')
+  })
+
+  it('hides and shows the underlay without touching the layout', async () => {
+    canvas.props = null
+    mockPlanWithUnderlay([])
+    const { getByText } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+
+    fireEvent.click(getByText('HIDE'))
+    await waitFor(() => expect(canvas.props.backgroundVisible).toBe(false))
+    expect(getByText('SHOW')).toBeTruthy()
+
+    fireEvent.click(getByText('SHOW'))
+    await waitFor(() => expect(canvas.props.backgroundVisible).toBe(true))
+  })
+
+  it('locks the underlay controls by default', async () => {
+    canvas.props = null
+    mockPlanWithUnderlay([])
+    const { getByTestId, getByText } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+
+    const panel = getByTestId('underlay-panel')
+    const opacity = () => panel.querySelectorAll('input[type="number"]')[0] as HTMLInputElement
+    expect(opacity().disabled).toBe(true)
+    expect((getByText('CALIBRATE').closest('button') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(getByText('LOCKED'))
+    await waitFor(() => expect(opacity().disabled).toBe(false))
+    expect(getByText('UNLOCKED')).toBeTruthy()
+    expect((getByText('CALIBRATE').closest('button') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('calibrates the scale and resizes the plan immediately', async () => {
+    const puts: { url: string; body: Record<string, unknown> }[] = []
+    canvas.props = null
+    mockPlanWithUnderlay(puts)
+    const { getByText, getByTestId, queryByTestId } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+
+    fireEvent.click(getByText('LOCKED'))
+    await waitFor(() => expect(getByText('UNLOCKED')).toBeTruthy())
+    fireEvent.click(getByText('CALIBRATE'))
+    await waitFor(() => expect(getByTestId('floorplan-calibration')).toBeTruthy())
+
+    // The operator clicks two points on the drawing, then types the real distance.
+    act(() => canvas.props.onCalibrationPoint(100, 100))
+    act(() => canvas.props.onCalibrationPoint(300, 100))
+    act(() => canvas.props.onBackgroundImageLoad({ width: 2000, height: 1000 }))
+    await waitFor(() => expect(getByTestId('floorplan-calibration').textContent).toContain('POINTS: 2/2'))
+
+    fireEvent.change(getByTestId('floorplan-calibration').querySelector('input[type="number"]')!, {
+      target: { value: '400' },
+    })
+    await waitFor(() =>
+      expect((getByText('APPLY CALIBRATION').closest('button') as HTMLButtonElement).disabled).toBe(false)
+    )
+    fireEvent.click(getByText('APPLY CALIBRATION'))
+
+    // Scale = 400 cm / 200 px = 2; the room becomes the drawing extent at that scale.
+    await waitFor(() => expect(canvas.props.roomWidth).toBe(4000))
+    expect(canvas.props.roomDepth).toBe(2000)
+    const saved = puts.find((p) => p.url === '/api/admin/floorplan/plan-1')
+    expect(saved?.body).toMatchObject({ roomWidth: 4000, roomDepth: 2000, backgroundScale: 2 })
+    expect(queryByTestId('floorplan-calibration')).toBeNull()
+  })
+
+  it('saves the underlay settings with the plan', async () => {
+    const puts: { url: string; body: Record<string, unknown> }[] = []
+    canvas.props = null
+    mockPlanWithUnderlay(puts)
+    const { getByText, getByTestId } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+
+    fireEvent.click(getByText('LOCKED'))
+    await waitFor(() => expect(getByText('UNLOCKED')).toBeTruthy())
+    const opacity = getByTestId('underlay-panel').querySelectorAll('input[type="number"]')[0] as HTMLInputElement
+    fireEvent.change(opacity, { target: { value: '70' } })
+
+    fireEvent.click(getByText('SAVE'))
+    await waitFor(() => expect(puts.some((p) => p.url === '/api/admin/floorplan/plan-1')).toBe(true))
+    const saved = puts.find((p) => p.url === '/api/admin/floorplan/plan-1')!
+    expect(saved.body).toMatchObject({
+      backgroundImageUrl: '/api/upload/drawing.png',
+      backgroundOpacity: 0.7,
+      backgroundScale: 1,
+    })
+  })
+
+  it('removing the drawing keeps the calibration and the geometry', async () => {
+    const puts: { url: string; body: Record<string, unknown> }[] = []
+    canvas.props = null
+    mockPlanWithUnderlay(puts)
+    const { getByText } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+
+    fireEvent.click(getByText('REMOVE'))
+    await waitFor(() => expect(canvas.props.background.imageUrl).toBeNull())
+    // Offsets/scale/opacity survive the removal; only the drawing goes away.
+    expect(canvas.props.background.scale).toBe(1)
+    expect(canvas.props.background.opacity).toBe(0.5)
+
+    fireEvent.click(getByText('SAVE'))
+    await waitFor(() => expect(puts.some((p) => p.url === '/api/admin/floorplan/plan-1')).toBe(true))
+    const saved = puts.find((p) => p.url === '/api/admin/floorplan/plan-1')!
+    expect(saved.body).toMatchObject({
+      backgroundImageUrl: null,
+      backgroundOpacity: 0.5,
+      backgroundScale: 1,
+    })
   })
 })

@@ -11,6 +11,11 @@ import {
   type FurnitureGeometry,
 } from '@/lib/furniture'
 import {
+  underlayRenderSpec,
+  type UnderlayPoint,
+  type UnderlayState,
+} from '@/lib/floorplan-underlay'
+import {
   screenToWorld,
   screenDeltaToWorld,
   zoomAroundPoint,
@@ -144,6 +149,15 @@ interface PixiCanvasProps {
   zoneTotals?: Record<string, { tables: number; seats: number }>
   // When a setup is active, dim + lock the base plan (walls/fixtures/zones)
   setupActive?: boolean
+  // Scaled reference-image underlay — editor only; hidden by default everywhere else.
+  background?: UnderlayState | null
+  backgroundVisible?: boolean
+  /** Report the drawing's natural pixel size once it has loaded (calibration needs it). */
+  onBackgroundImageLoad?: (size: { width: number; height: number }) => void
+  /** Calibration mode captures canvas clicks so two points can be picked. */
+  calibrating?: boolean
+  calibrationPoints?: UnderlayPoint[]
+  onCalibrationPoint?: (x: number, y: number) => void
 }
 
 function computeView(sw: number, sh: number, rw: number, rd: number, zoom: number, panX: number, panY: number) {
@@ -171,12 +185,17 @@ export function FloorPlanPixiCanvas({
   onSetupChairMove, onSetupChairAdd, onSetupChairRemove, armedPlacement = false, onCanvasPlace,
   wallDrawing, wallPoints, onWallPoint,
   zonePolyMode, zonePolyPoints, onZonePolyAdd,
+  background = null, backgroundVisible = false, onBackgroundImageLoad,
+  calibrating = false, calibrationPoints, onCalibrationPoint,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
   const baseRef = useRef<PIXI.Container | null>(null)
   const setupRef = useRef<PIXI.Container | null>(null)
   const boundaryRef = useRef<PIXI.Container | null>(null)
+  /** One texture per drawing URL — a scene rebuild never refetches the image. */
+  const underlayTextureRef = useRef<{ url: string; texture: PIXI.Texture } | null>(null)
+  const underlaySizeRef = useRef<string | null>(null)
   /** Snap preview outline, drawn in room space above every layer. */
   const guideRef = useRef<PIXI.Graphics | null>(null)
   /** The one active pointer gesture — see `beginCanvasGesture`. */
@@ -469,6 +488,8 @@ export function FloorPlanPixiCanvas({
       gestureHandlersRef.current = null
       gestureRef.current = IDLE_GESTURE
       guideRef.current = null
+      underlayTextureRef.current = null
+      underlaySizeRef.current = null
       app.destroy(true, { children: true })
       appRef.current = null
       roomRef.current = null
@@ -495,6 +516,39 @@ export function FloorPlanPixiCanvas({
     if (setupLayer) { setupLayer.removeChildren(); room.addChild(setupLayer) }
     // The snap guide survives a rebuild and sits above every layer.
     if (guideRef.current) { guideRef.current.clear(); room.addChild(guideRef.current) }
+
+    // Calibration mode: a transparent room-sized catcher above everything so
+    // the two reference clicks are not stolen by an element or the #194
+    // gesture state machine (which only starts on a stage-owned pointerdown).
+    if (calibrating) {
+      const calPxScale = vs.baseScale * vs.zoom || 1
+      const catcher = new PIXI.Graphics()
+      catcher.beginFill(0xFFFFFF, 0.001).drawRect(0, 0, roomWidth, roomDepth).endFill()
+      catcher.eventMode = 'static'
+      catcher.cursor = 'crosshair'
+      catcher.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+        if (e.button !== 0) return
+        e.stopPropagation()
+        const p = screenToWorld(viewRef.current, e.globalX, e.globalY)
+        onCalibrationPoint?.(p.x, p.y)
+      })
+      room.addChild(catcher)
+
+      if (calibrationPoints && calibrationPoints.length > 0) {
+        const marker = new PIXI.Graphics()
+        marker.eventMode = 'none'
+        marker.lineStyle(2 / calPxScale, 0x4488FF, 1)
+        calibrationPoints.forEach((p, i) => {
+          marker.beginFill(0x4488FF, 1).drawCircle(p.x, p.y, 6 / calPxScale).endFill()
+          if (i > 0) {
+            const prev = calibrationPoints[i - 1]
+            marker.moveTo(prev.x, prev.y)
+            marker.lineTo(p.x, p.y)
+          }
+        })
+        room.addChild(marker)
+      }
+    }
     // Two-layer lock: dim + disable the base plan while a setup is active
     if (baseLayer) { baseLayer.alpha = setupActive ? 0.5 : 1; baseLayer.eventMode = setupActive ? 'none' : 'auto' }
     const pxScale = vs.baseScale * vs.zoom || 1
@@ -504,6 +558,41 @@ export function FloorPlanPixiCanvas({
     bg.beginFill(0x1A1A1A).lineStyle(2 / pxScale, 0x4A4A4A).drawRect(0, 0, roomWidth, roomDepth).endFill()
     bg.eventMode = 'none'
     baseLayer?.addChild(bg)
+
+    // Reference image underlay: below the grid and below every element, and
+    // pure decoration (`eventMode: 'none'`) so it never owns a pointer gesture.
+    const bgSpec = underlayRenderSpec(background, backgroundVisible)
+    const bgUrl = background?.imageUrl ?? null
+    if (bgSpec && bgUrl) {
+      try {
+        let cached = underlayTextureRef.current
+        if (!cached || cached.url !== bgUrl) {
+          cached = { url: bgUrl, texture: PIXI.Texture.from(bgUrl) }
+          underlayTextureRef.current = cached
+          underlaySizeRef.current = null
+        }
+        const texture = cached.texture
+        const reportSize = () => {
+          if (underlaySizeRef.current === bgUrl) return
+          const btx = texture.baseTexture
+          if (!btx?.valid || !btx.width || !btx.height) return
+          underlaySizeRef.current = bgUrl
+          onBackgroundImageLoad?.({ width: btx.width, height: btx.height })
+        }
+        if (texture.baseTexture?.valid) reportSize()
+        else texture.baseTexture?.once('loaded', reportSize)
+
+        const sprite = new PIXI.Sprite(texture)
+        sprite.x = bgSpec.x
+        sprite.y = bgSpec.y
+        sprite.scale.set(bgSpec.scale)
+        sprite.alpha = bgSpec.alpha
+        sprite.eventMode = bgSpec.eventMode
+        baseLayer?.addChild(sprite)
+      } catch {
+        // A drawing that fails to load must never take the scene down.
+      }
+    }
 
     // Grid
     const gd = new PIXI.Graphics(); gd.lineStyle(1 / pxScale, 0x2E2E2E, 0.3)
@@ -1008,7 +1097,7 @@ export function FloorPlanPixiCanvas({
         setupLayer.addChild(c)
       })
     }
-  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale])
+  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale, background, backgroundVisible, calibrating, calibrationPoints])
 
   /**
    * The section zone a dropped item's centre lands in, if any.
