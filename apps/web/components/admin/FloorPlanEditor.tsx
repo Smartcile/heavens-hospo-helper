@@ -125,6 +125,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [underlayLocked, setUnderlayLocked] = useState(true)
   const [underlayDirty, setUnderlayDirty] = useState(false)
   const [bgImageSize, setBgImageSize] = useState<{ width: number; height: number } | null>(null)
+  const [scaleInput, setScaleInput] = useState(normaliseUnderlay(null).scale.toString())
   const [calibrationOpen, setCalibrationOpen] = useState(false)
   const [calibrationPoints, setCalibrationPoints] = useState<UnderlayPoint[]>([])
   const [calibrationDistance, setCalibrationDistance] = useState('')
@@ -279,6 +280,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const nextUnderlay = normaliseUnderlay({ ...underlay, scale: result.scale })
 
     setUnderlay(nextUnderlay)
+    setScaleInput(String(nextUnderlay.scale))
     setPlanDims((prev) => ({ ...prev, roomWidth, roomDepth }))
     setEditRoomW(String(roomWidth))
     setEditRoomD(String(roomDepth))
@@ -740,6 +742,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             offsetY: data.backgroundOffsetY,
             scale: data.backgroundScale,
           }))
+          setScaleInput(String(normaliseUnderlay({ scale: data.backgroundScale }).scale))
           if (data.backgroundImageUrl) setUnderlayVisible(true)
         }
       } catch (e) {
@@ -1537,8 +1540,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               value={underlay.imageUrl}
               onChange={handleUnderlayImage}
               label="DRAWING"
-              usageKey={`floorplan:${plan.id}`}
             />
+            <p className="font-mono text-xs text-grey-light/70 leading-snug">
+              UPLOADS ARE DOWNSCALED TO 2000 PX. CALIBRATION STAYS ACCURATE, BUT FINE LINE DETAIL MAY BLUR.
+            </p>
             {underlay.imageUrl && (
               <>
                 <div className="flex gap-1">
@@ -1595,13 +1600,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   step="0.01"
                   min="0.01"
                   disabled={underlayLocked}
-                  value={underlay.scale.toString()}
-                  onChange={(e) => patchUnderlay({ scale: parseFloat(e.target.value) })}
+                  value={scaleInput}
+                  onChange={(e) => {
+                    // Keep the typed string so clearing/typing does not snap
+                    // straight back to the default mid-edit.
+                    setScaleInput(e.target.value)
+                    const next = Number(e.target.value)
+                    if (e.target.value.trim() !== '' && Number.isFinite(next) && next > 0) {
+                      patchUnderlay({ scale: next })
+                    }
+                  }}
+                  onBlur={() => {
+                    const next = normaliseUnderlay({ ...underlay, scale: Number(scaleInput) }).scale
+                    setScaleInput(String(next))
+                    if (next !== underlay.scale) patchUnderlay({ scale: next })
+                  }}
                 />
                 <button
                   onClick={openCalibration}
-                  disabled={underlayLocked}
-                  className="font-mono text-xs uppercase w-full border border-accent text-accent px-2 py-1 disabled:opacity-40"
+                  className="font-mono text-xs uppercase w-full border border-accent text-accent px-2 py-1"
                 >
                   CALIBRATE
                 </button>

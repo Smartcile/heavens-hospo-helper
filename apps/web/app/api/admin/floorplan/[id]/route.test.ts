@@ -17,6 +17,7 @@ vi.mock('@/lib/permissions', () => ({ guardAccess }))
 vi.mock('@/lib/venue-scope', () => ({ getAccessibleVenueIds }))
 
 import { PUT } from './route'
+import { UNDERLAY_MAX_SCALE, UNDERLAY_MIN_SCALE } from '@/lib/floorplan-underlay'
 
 const managerSession = {
   user: { id: 'm1', role: 'MANAGER', venueId: 'v1', availableVenueIds: ['v1'] },
@@ -122,8 +123,26 @@ describe('PUT /api/admin/floorplan/[id]', () => {
     expect(prisma.floorPlan.update).not.toHaveBeenCalled()
   })
 
-  it('rejects a non-positive scale', async () => {
-    const res = await PUT(req({ backgroundScale: 0 }), params)
+  it('clamps a too-large scale to the supported maximum', async () => {
+    const res = await PUT(req({ backgroundScale: 500 }), params)
+    expect(res.status).toBe(200)
+    expect(prisma.floorPlan.update).toHaveBeenCalledWith({
+      where: { id: 'plan-1' },
+      data: { backgroundScale: UNDERLAY_MAX_SCALE },
+    })
+  })
+
+  it('clamps a too-small scale to the supported minimum', async () => {
+    const res = await PUT(req({ backgroundScale: 0.001 }), params)
+    expect(res.status).toBe(200)
+    expect(prisma.floorPlan.update).toHaveBeenCalledWith({
+      where: { id: 'plan-1' },
+      data: { backgroundScale: UNDERLAY_MIN_SCALE },
+    })
+  })
+
+  it('rejects a non-numeric scale', async () => {
+    const res = await PUT(req({ backgroundScale: 'huge' }), params)
     expect(res.status).toBe(400)
     expect(prisma.floorPlan.update).not.toHaveBeenCalled()
   })

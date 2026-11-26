@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getAccessibleVenueIds } from '@/lib/venue-scope'
+import { UNDERLAY_MAX_SCALE, UNDERLAY_MIN_SCALE } from '@/lib/floorplan-underlay'
 
 interface Params { params: { id: string } }
 
@@ -79,10 +80,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
   if (backgroundScale !== undefined) {
     const value = Number(backgroundScale)
-    if (!Number.isFinite(value) || value <= 0) {
-      return NextResponse.json({ error: 'backgroundScale must be greater than 0' }, { status: 400 })
+    if (!Number.isFinite(value)) {
+      return NextResponse.json({ error: 'backgroundScale must be a number' }, { status: 400 })
     }
-    updates.backgroundScale = value
+    // Same scale bounds the editor/lib use; clamp rather than reject so a
+    // stale/rounded client value still persists.
+    updates.backgroundScale = Math.min(UNDERLAY_MAX_SCALE, Math.max(UNDERLAY_MIN_SCALE, value))
   }
   for (const key of ['backgroundOffsetX', 'backgroundOffsetY'] as const) {
     const raw = body[key]

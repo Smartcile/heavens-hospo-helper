@@ -488,8 +488,17 @@ export function FloorPlanPixiCanvas({
       gestureHandlersRef.current = null
       gestureRef.current = IDLE_GESTURE
       guideRef.current = null
+      const cachedUnderlay = underlayTextureRef.current
       underlayTextureRef.current = null
       underlaySizeRef.current = null
+      if (cachedUnderlay && !cachedUnderlay.texture.destroyed) {
+        try {
+          PIXI.Texture.removeFromCache(cachedUnderlay.texture)
+          cachedUnderlay.texture.destroy(true)
+        } catch {
+          // Already disposed.
+        }
+      }
       app.destroy(true, { children: true })
       appRef.current = null
       roomRef.current = null
@@ -549,7 +558,9 @@ export function FloorPlanPixiCanvas({
         room.addChild(marker)
       }
     }
-    // Two-layer lock: dim + disable the base plan while a setup is active
+    // Two-layer lock: dim + disable the base plan while a setup is active.
+    // The reference image sits in this layer too, so it dims with the base plan
+    // (intentional — it is a base-plan tracing aid during setup work).
     if (baseLayer) { baseLayer.alpha = setupActive ? 0.5 : 1; baseLayer.eventMode = setupActive ? 'none' : 'auto' }
     const pxScale = vs.baseScale * vs.zoom || 1
 
@@ -563,32 +574,60 @@ export function FloorPlanPixiCanvas({
     // pure decoration (`eventMode: 'none'`) so it never owns a pointer gesture.
     const bgSpec = underlayRenderSpec(background, backgroundVisible)
     const bgUrl = background?.imageUrl ?? null
+    if (!bgUrl && underlayTextureRef.current) {
+      // The drawing was removed: release its texture (a hide is different —
+      // the texture is kept so SHOW does not refetch the image).
+      const previous = underlayTextureRef.current.texture
+      underlayTextureRef.current = null
+      underlaySizeRef.current = null
+      if (!previous.destroyed) {
+        try {
+          PIXI.Texture.removeFromCache(previous)
+          previous.destroy(true)
+        } catch {
+          // Already disposed.
+        }
+      }
+    }
     if (bgSpec && bgUrl) {
       try {
-        let cached = underlayTextureRef.current
-        if (!cached || cached.url !== bgUrl) {
-          cached = { url: bgUrl, texture: PIXI.Texture.from(bgUrl) }
-          underlayTextureRef.current = cached
+        let texture = underlayTextureRef.current?.texture ?? null
+        if (!underlayTextureRef.current || underlayTextureRef.current.url !== bgUrl) {
+          const previous = underlayTextureRef.current?.texture ?? null
+          texture = PIXI.Texture.from(bgUrl)
+          underlayTextureRef.current = { url: bgUrl, texture }
           underlaySizeRef.current = null
+          // The old drawing is gone; release its GPU memory (and the cache entry
+          // so re-uploading the same URL builds a fresh texture).
+          if (previous && !previous.destroyed) {
+            try {
+              PIXI.Texture.removeFromCache(previous)
+              previous.destroy(true)
+            } catch {
+              // Already disposed by Pixi — nothing left to release.
+            }
+          }
         }
-        const texture = cached.texture
-        const reportSize = () => {
-          if (underlaySizeRef.current === bgUrl) return
-          const btx = texture.baseTexture
-          if (!btx?.valid || !btx.width || !btx.height) return
-          underlaySizeRef.current = bgUrl
-          onBackgroundImageLoad?.({ width: btx.width, height: btx.height })
-        }
-        if (texture.baseTexture?.valid) reportSize()
-        else texture.baseTexture?.once('loaded', reportSize)
+        if (texture) {
+          const spriteTexture = texture
+          const reportSize = () => {
+            if (underlaySizeRef.current === bgUrl) return
+            const btx = spriteTexture.baseTexture
+            if (!btx?.valid || !btx.width || !btx.height) return
+            underlaySizeRef.current = bgUrl
+            onBackgroundImageLoad?.({ width: btx.width, height: btx.height })
+          }
+          if (spriteTexture.baseTexture?.valid) reportSize()
+          else spriteTexture.baseTexture?.once('loaded', reportSize)
 
-        const sprite = new PIXI.Sprite(texture)
-        sprite.x = bgSpec.x
-        sprite.y = bgSpec.y
-        sprite.scale.set(bgSpec.scale)
-        sprite.alpha = bgSpec.alpha
-        sprite.eventMode = bgSpec.eventMode
-        baseLayer?.addChild(sprite)
+          const sprite = new PIXI.Sprite(spriteTexture)
+          sprite.x = bgSpec.x
+          sprite.y = bgSpec.y
+          sprite.scale.set(bgSpec.scale)
+          sprite.alpha = bgSpec.alpha
+          sprite.eventMode = bgSpec.eventMode
+          baseLayer?.addChild(sprite)
+        }
       } catch {
         // A drawing that fails to load must never take the scene down.
       }

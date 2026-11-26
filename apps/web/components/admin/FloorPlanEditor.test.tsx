@@ -62,7 +62,10 @@ function mockPlanWithElement() {
 }
 
 /** Load a plan carrying a reference-image underlay and record PUT bodies. */
-function mockPlanWithUnderlay(puts: { url: string; body: Record<string, unknown> }[]) {
+function mockPlanWithUnderlay(
+  puts: { url: string; body: Record<string, unknown> }[],
+  overrides: Partial<Record<'backgroundScale' | 'backgroundOpacity' | 'backgroundOffsetX' | 'backgroundOffsetY', number>> = {},
+) {
   const underlayPlan = {
     roomWidth: 2000,
     roomDepth: 1500,
@@ -74,8 +77,12 @@ function mockPlanWithUnderlay(puts: { url: string; body: Record<string, unknown>
     backgroundOffsetX: 0,
     backgroundOffsetY: 0,
     backgroundScale: 1,
+    ...overrides,
   }
   vi.spyOn(global, 'fetch').mockImplementation(((url: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && url === '/api/admin/upload') {
+      return Promise.resolve({ ok: true, json: async () => ({ url: '/api/upload/replaced.png' }) } as Response)
+    }
     if (init?.method === 'PUT') {
       puts.push({ url, body: JSON.parse(String(init.body ?? '{}')) })
       return Promise.resolve({ ok: true, json: async () => ({ saved: [] }) } as Response)
@@ -303,7 +310,8 @@ describe('FloorPlanEditor', () => {
     const panel = getByTestId('underlay-panel')
     const opacity = () => panel.querySelectorAll('input[type="number"]')[0] as HTMLInputElement
     expect(opacity().disabled).toBe(true)
-    expect((getByText('CALIBRATE').closest('button') as HTMLButtonElement).disabled).toBe(true)
+    // LOCK protects the numeric settings only — calibration is always available.
+    expect((getByText('CALIBRATE').closest('button') as HTMLButtonElement).disabled).toBe(false)
 
     fireEvent.click(getByText('LOCKED'))
     await waitFor(() => expect(opacity().disabled).toBe(false))
@@ -394,5 +402,49 @@ describe('FloorPlanEditor', () => {
       backgroundOpacity: 0.5,
       backgroundScale: 1,
     })
+  })
+
+  it('replacing the drawing keeps the calibration', async () => {
+    canvas.props = null
+    mockPlanWithUnderlay([], {
+      backgroundScale: 2,
+      backgroundOffsetX: 40,
+      backgroundOffsetY: 10,
+      backgroundOpacity: 0.5,
+    })
+    const { container } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background?.scale).toBe(2))
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['drawing'], 'new.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(canvas.props.background.imageUrl).toBe('/api/upload/replaced.png'))
+    expect(canvas.props.background.scale).toBe(2)
+    expect(canvas.props.background.offsetX).toBe(40)
+    expect(canvas.props.background.offsetY).toBe(10)
+    expect(canvas.props.background.opacity).toBe(0.5)
+  })
+
+  it('keeps the typed scale string without snapping mid-edit', async () => {
+    canvas.props = null
+    mockPlanWithUnderlay([])
+    const { getByText, getByTestId } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(canvas.props?.background).toBeTruthy())
+    fireEvent.click(getByText('LOCKED'))
+    await waitFor(() => expect(getByText('UNLOCKED')).toBeTruthy())
+
+    const scaleInput = getByTestId('underlay-panel').querySelectorAll('input[type="number"]')[3] as HTMLInputElement
+    fireEvent.change(scaleInput, { target: { value: '' } })
+    expect(scaleInput.value).toBe('')
+    expect(canvas.props.background.scale).toBe(1)
+
+    fireEvent.change(scaleInput, { target: { value: '0.05' } })
+    await waitFor(() => expect(canvas.props.background.scale).toBe(0.05))
   })
 })
