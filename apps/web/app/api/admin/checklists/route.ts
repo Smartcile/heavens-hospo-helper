@@ -6,6 +6,7 @@ import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parseTaskGroups } from '@/lib/task-groups'
+import { normalisePushAlertAfter } from '@/lib/task-push'
 import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -84,6 +85,9 @@ export async function GET(req: NextRequest) {
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
       multiDay: c.multiDay,
+      excludeFromProgress: c.excludeFromProgress,
+      allowPushToTomorrow: c.allowPushToTomorrow,
+      pushAlertAfter: c.pushAlertAfter,
       department: c.department,
       section: c.section,
       audiences: c.audiences,
@@ -114,7 +118,7 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, audiences, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, audiences, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, excludeFromProgress, allowPushToTomorrow, pushAlertAfter } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   const cleanAud = cleanNoticeAudiences(audiences)
   const scheduleCheck = validateSchedules(schedules)
@@ -144,6 +148,9 @@ export async function POST(req: NextRequest) {
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
       multiDay: !!multiDay,
+      excludeFromProgress: !!excludeFromProgress,
+      allowPushToTomorrow: !!allowPushToTomorrow,
+      pushAlertAfter: normalisePushAlertAfter(pushAlertAfter),
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
       tasks: {

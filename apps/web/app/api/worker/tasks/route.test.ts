@@ -91,9 +91,21 @@ function multiDayChecklist() {
   return {
     id: 'c1', name: 'SIDE WORK', appearFromTime: null, activatedOn: null,
     schedules: [], events: [], allowedOutcomes: [], requireOutcomeReason: false,
-    multiDay: true, tasks: [{ taskId: 't1' }],
+    multiDay: true, excludeFromProgress: false, allowPushToTomorrow: false, pushAlertAfter: 3,
+    tasks: [{ taskId: 't1' }],
   }
 }
+
+function pushChecklist(overrides: Record<string, unknown> = {}) {
+  return {
+    ...multiDayChecklist(),
+    multiDay: false,
+    allowPushToTomorrow: true,
+    ...overrides,
+  }
+}
+
+const TOMORROW = new Date('2026-11-09T00:00:00.000Z')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -267,5 +279,66 @@ describe('GET /api/worker/tasks — day-aware partials', () => {
 
     expect(body.tasks).toHaveLength(1)
     expect(body.tasks[0].custom).toBe(false)
+  })
+
+  // #143 — a FINISH TOMORROW push hides the task until its day.
+  it('hides a task pushed to tomorrow and reports the deferred count', async () => {
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({
+        scheduleType: 'DAILY',
+        progress: { ...partial(TODAY), pushedToDate: TOMORROW },
+      }),
+    ])
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks).toHaveLength(0)
+    expect(body.deferredCount).toBe(1)
+    expect(body.deferred).toEqual([
+      { taskId: 't1', title: 'BACK WASH HEADS', pushedTo: '2026-11-09' },
+    ])
+    // A future push must never be swept as a stale partial.
+    expect(prisma.taskProgress.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('returns the task on the day it was pushed to', async () => {
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({
+        scheduleType: 'DAILY',
+        progress: { ...partial(YESTERDAY), pushedToDate: TODAY },
+      }),
+    ])
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks).toHaveLength(1)
+    expect(body.deferredCount).toBe(0)
+  })
+
+  it('offers FINISH TOMORROW only when the open list allows it', async () => {
+    prisma.task.findMany.mockResolvedValue([floorTask({ scheduleType: 'DAILY' })])
+    applicableChecklistsForStaff.mockResolvedValue({
+      checklists: [pushChecklist()], departmentIds: null,
+    })
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks[0].canPushToTomorrow).toBe(true)
+    expect(body.checklists[0].allowPushToTomorrow).toBe(true)
+  })
+
+  it('does not offer FINISH TOMORROW when the list disallows it', async () => {
+    prisma.task.findMany.mockResolvedValue([floorTask({ scheduleType: 'DAILY' })])
+    applicableChecklistsForStaff.mockResolvedValue({
+      checklists: [pushChecklist({ allowPushToTomorrow: false })], departmentIds: null,
+    })
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks[0].canPushToTomorrow).toBe(false)
   })
 })

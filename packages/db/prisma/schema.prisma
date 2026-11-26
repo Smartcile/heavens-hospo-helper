@@ -398,6 +398,7 @@ model Venue {
   sectionWorkReviews  SectionWorkReview[]
   followUps           FollowUp[]
   checklists          Checklist[]
+  taskPushes          TaskPush[]
   floorPlans          FloorPlan[]
   inventoryCategories InventoryCategory[]
   inventoryItems      InventoryItem[]
@@ -542,6 +543,7 @@ model Staff {
   taskCompletionsUndone TaskCompletion[] @relation("TaskCompletionUndoneBy")
   taskComments         TaskComment[]
   taskProgress         TaskProgress[]
+  taskPushes           TaskPush[]
   trainingAssignments  TrainingAssignment[]
   trainingCompletions  TrainingCompletion[]
   guideCompletions     GuideCompletion[]
@@ -662,6 +664,7 @@ model Task {
   linkedItem       InventoryItem?         @relation("TaskLinkedItem", fields: [linkedItemId], references: [id])
   taskCompletions  TaskCompletion[]
   progress         TaskProgress?
+  pushes           TaskPush[]
   hsAlerts         HsAlert[]
   trainingSteps    TrainingStep[]         @relation("StepLinkedTask")
   stepTasks        StepTask[]
@@ -735,11 +738,46 @@ model TaskProgress {
   // Venue-local day the partial was reported. Null = legacy row, treated stale
   // for a today-only list; a multi-day list keeps it live regardless.
   progressDate DateTime?   @db.Date
+  // FINISH TOMORROW (#143) — the day a deliberate push revives the task. A
+  // future date hides the task from today's floor list without settling it; no
+  // TaskCompletion / follow-up / report row is written for a push.
+  pushedToDate DateTime?   @db.Date
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   staff Staff @relation(fields: [staffId], references: [id])
+}
+
+// A deliberate "finish tomorrow" push (#143). The audit row is append-only
+// (soft delete only) so a repeat-push streak can alert managers, and because a
+// push must never look like a completion: no completion, follow-up, report or
+// section-work row is written. `fromDate` is the venue-local day the push was
+// made, `toDate` the day the task returns.
+model TaskPush {
+  id        String    @id @default(uuid())
+  taskId    String
+  staffId   String
+  venueId   String
+  fromDate  DateTime  @db.Date
+  toDate    DateTime  @db.Date
+  note      String?
+  // True when THIS push is what created the shared TaskProgress row. Undo then
+  // removes the row; when an earlier PARTIAL already existed it is kept (only
+  // `pushedToDate` is cleared).
+  createdProgress Boolean @default(false)
+  // Set when this push (or the streak it belongs to) raised the manager alert.
+  alertedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  task  Task  @relation(fields: [taskId], references: [id])
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([taskId, fromDate])
+  @@index([venueId, createdAt])
 }
 
 // A Food Health & Safety alert — raised automatically when a reading is
@@ -1996,6 +2034,13 @@ model Checklist {
   // SIDE WORK / MULTI-DAY — a PARTIAL stays live across days until a terminal
   // outcome. Default false = today-only (a stale partial resets the next day).
   multiDay       Boolean   @default(false)
+  // #143 — keep this list out of the day progress bar (e.g. side work).
+  excludeFromProgress Boolean @default(false)
+  // #143 — FINISH TOMORROW is offered for tasks in this list. A push writes no
+  // completion; after `pushAlertAfter` consecutive pushes on one task a pinned
+  // manager Notice is raised.
+  allowPushToTomorrow Boolean @default(false)
+  pushAlertAfter      Int     @default(3)
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

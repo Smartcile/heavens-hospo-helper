@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { normalisePushAlertAfter } from '@/lib/task-push'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
@@ -24,7 +25,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences, excludeFromProgress, allowPushToTomorrow, pushAlertAfter } = body
 
   let scheduleData: ReturnType<typeof validateSchedules> | null = null
   if (schedules !== undefined) {
@@ -74,6 +75,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
       ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
       ...(multiDay !== undefined && { multiDay: !!multiDay }),
+      ...(excludeFromProgress !== undefined && { excludeFromProgress: !!excludeFromProgress }),
+      ...(allowPushToTomorrow !== undefined && { allowPushToTomorrow: !!allowPushToTomorrow }),
+      ...(pushAlertAfter !== undefined && { pushAlertAfter: normalisePushAlertAfter(pushAlertAfter) }),
       ...(audiences !== undefined && {
         audiences: { deleteMany: {}, create: cleanNoticeAudiences(audiences) },
       }),

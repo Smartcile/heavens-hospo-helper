@@ -3,9 +3,10 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
-import { carryTaskToday, isProgressLive, isStaleProgress } from '@/lib/task-progress'
+import { carryTaskToday, isProgressLive, isStaleProgress, isPushedToFuture, progressDayKey } from '@/lib/task-progress'
 import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf, summariseCalendarEvent } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
+import { isPushAllowed, openPushList, type PushListLike } from '@/lib/task-push'
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
@@ -194,6 +195,10 @@ export async function GET(req: NextRequest) {
           }),
       // SIDE WORK / MULTI-DAY — partials stay in progress across days.
       multiDay: c.multiDay,
+      // #143 — role-aware day progress + FINISH TOMORROW.
+      excludeFromProgress: c.excludeFromProgress,
+      allowPushToTomorrow: c.allowPushToTomorrow,
+      pushAlertAfter: c.pushAlertAfter,
       taskIds: c.tasks.map((ct) => ct.taskId),
       // Checklist-scoped group labels, keyed by task id. A group can be settled
       // as NOT_REQUIRED in bulk from the worker list.
@@ -220,7 +225,8 @@ export async function GET(req: NextRequest) {
   // completed today. Yesterday's partial on a today-only list no longer carries
   // (the day-aware rule in task-progress), and a live completion keeps the task
   // settled even after an edit makes it no longer due. The completion query is
-  // already scoped to the venue-local day + `deletedAt: null`.
+  // already scoped to the venue-local day + `deletedAt: null`. A FINISH TOMORROW
+  // push hides the task until its day (#143).
   const todayTasks = tasks.filter((t) =>
     carryTaskToday({
       isDueToday: isTaskDueOnDate(t, today),
@@ -230,15 +236,28 @@ export async function GET(req: NextRequest) {
       completedToday: t.taskCompletions.length > 0,
     }),
   )
+  // Work deliberately deferred to a later day — shown as a count and an UNDO
+  // strip, never as a task on today's list.
+  const deferred = tasks
+    .filter((t) => isPushedToFuture(t.progress?.pushedToDate, todayKey) && t.taskCompletions.length === 0)
+    .map((t) => ({
+      taskId: t.id,
+      title: t.title,
+      pushedTo: progressDayKey(t.progress?.pushedToDate) ?? '',
+    }))
+  const deferredCount = deferred.length
 
   // Best-effort reset of this floor's stale today-only partials. Only runs when
   // a loaded row is actually stale, and `isStaleProgress` never flags a
-  // multi-day row. One bounded write in the GET keeps the floor and the
-  // follow-up engine in agreement.
+  // multi-day row or a push that has not reached its day yet. One bounded write
+  // in the GET keeps the floor and the follow-up engine in agreement.
   const staleProgressTaskIds = tasks
     .filter((t) =>
       t.progress &&
-      isStaleProgress(t.progress.progressDate, todayKey, { multiDay: multiDayTaskIds.has(t.id) }),
+      isStaleProgress(t.progress.progressDate, todayKey, {
+        multiDay: multiDayTaskIds.has(t.id),
+        pushedToDate: t.progress.pushedToDate,
+      }),
     )
     .map((t) => t.id)
   if (staleProgressTaskIds.length > 0) {
@@ -298,6 +317,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // FINISH TOMORROW availability follows the same first-open-list rule, so the
+  // button the worker sees is the list the push endpoint will accept.
+  const pushListsByTask = new Map<string, PushListLike[]>()
+  for (const c of checklists) {
+    const pushList: PushListLike = {
+      name: c.name,
+      appearFromTime: c.appearFromTime,
+      activatedOn: c.activatedOn,
+      schedules: c.schedules,
+      events: c.events,
+      allowPushToTomorrow: c.allowPushToTomorrow,
+      pushAlertAfter: c.pushAlertAfter,
+    }
+    for (const ct of c.tasks) {
+      const arr = pushListsByTask.get(ct.taskId) ?? []
+      arr.push(pushList)
+      pushListsByTask.set(ct.taskId, arr)
+    }
+  }
+
   const result = todayTasks.map((t) => {
     const c = t.taskCompletions[0]
     const policy = resolveOutcomePolicyForChecklists(
@@ -309,6 +348,8 @@ export async function GET(req: NextRequest) {
       policyListsByTask.get(t.id) ?? [],
       { today, nowHHmm },
     )
+    const canPushToTomorrow =
+      !c && isPushAllowed(openPushList(pushListsByTask.get(t.id) ?? [], { today, nowHHmm }))
     return {
       id: t.id,
       title: t.title,
@@ -326,6 +367,8 @@ export async function GET(req: NextRequest) {
       outcome: c?.outcome ?? null,
       allowedOutcomes: policy.allowed,
       requireOutcomeReason: policy.requireReason,
+      // #143 — FINISH TOMORROW is offered only when the open list enables it.
+      canPushToTomorrow,
       inProgress:
         t.progress &&
         isProgressLive(t.progress.progressDate, todayKey, { multiDay: multiDayTaskIds.has(t.id) })
@@ -388,6 +431,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     tasks: result,
     checklists: checklistResult,
+    deferredCount,
+    deferred,
     firstName: session.firstName,
     staffId: session.staffId,
     access,

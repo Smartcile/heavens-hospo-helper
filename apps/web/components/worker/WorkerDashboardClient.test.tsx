@@ -85,9 +85,15 @@ describe('WorkerDashboardClient chrome', () => {
       if (u === '/api/worker/tasks') {
         taskCalls++
         const tasks = taskCalls === 1
-          ? [{ isCompleted: false }, { isCompleted: false }]
-          : [{ isCompleted: true }, { isCompleted: true }]
-        return json({ tasks, firstName: 'ALEX' })
+          ? [
+              { id: 't1', isDone: false, isSettled: false },
+              { id: 't2', isDone: false, isSettled: false },
+            ]
+          : [
+              { id: 't1', isDone: true, isSettled: true },
+              { id: 't2', isDone: true, isSettled: true },
+            ]
+        return json({ tasks, checklists: [], firstName: 'ALEX' })
       }
       if (u === '/api/worker/notices') return json({ unackedRequired: 0, items: [] })
       if (u === '/api/worker/calendar') return json({ shifts: [], openShiftCount: 0 })
@@ -299,6 +305,39 @@ describe('WorkerDashboardClient chrome', () => {
       unmount()
       delete (globalThis as unknown as { EventSource?: unknown }).EventSource
     }
+  })
+
+  // #143 — the tile must match the header: DONE only, and lists excluded from
+  // progress are in neither figure.
+  it('counts DONE only and respects lists excluded from progress', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        return json({
+          tasks: [
+            { id: 't1', isDone: true, isSettled: true },
+            { id: 't2', isDone: false, isSettled: true }, // NOT_REQUIRED / DID_NOT_COMPLETE
+            { id: 't3', isDone: true, isSettled: true }, // side work, excluded
+          ],
+          checklists: [
+            { id: 'c1', openNow: true, taskIds: ['t1', 't2'] },
+            { id: 'c2', openNow: true, taskIds: ['t3'], excludeFromProgress: true },
+          ],
+          firstName: 'ALEX',
+        })
+      }
+      if (u === '/api/worker/notices') return json({ unackedRequired: 0, items: [] })
+      if (u === '/api/worker/calendar') return json({ shifts: [], openShiftCount: 0 })
+      if (u === '/api/worker/guides') return json({ items: [] })
+      if (u === '/api/worker/pathway') return json({ pathway: null })
+      if (u === '/api/worker/stocktake') return json([])
+      if (u === '/api/worker/timeclock/status') return json({ isClockedIn: false })
+      if (u === '/api/worker/events/access') return json({ allowed: false })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="MANAGER" />)
+    await waitFor(() => expect(screen.getByText(/1 PENDING · 50% DONE/)).toBeDefined())
   })
 })
 

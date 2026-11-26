@@ -133,7 +133,9 @@ export async function bulkNotRequiredGroup(input: {
         allowedOutcomes: true,
         overrideOutcomes: true,
         requireOutcomeReason: true,
-        progress: { select: { progressDate: true } },
+        // `pushedToDate` makes carryTaskToday honour a FINISH TOMORROW push, so a
+        // bulk NOT_REQUIRED cannot settle a task that is deliberately deferred.
+        progress: { select: { progressDate: true, pushedToDate: true } },
       },
     }),
     prisma.taskCompletion.findMany({

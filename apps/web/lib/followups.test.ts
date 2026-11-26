@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   taskCompletion: { findMany: vi.fn() },
   taskProgress: { findMany: vi.fn() },
   checklistTask: { findMany: vi.fn() },
+  taskPush: { findMany: vi.fn() },
   guideAssignment: { upsert: vi.fn() },
 }))
 
@@ -55,6 +56,7 @@ describe('followups', () => {
     mocks.taskCompletion.findMany.mockResolvedValue([])
     mocks.taskProgress.findMany.mockResolvedValue([])
     mocks.checklistTask.findMany.mockResolvedValue([])
+    mocks.taskPush.findMany.mockResolvedValue([])
     mocks.guideAssignment.upsert.mockResolvedValue({})
     mocks.followUp.upsert.mockResolvedValue({
       createdAt: new Date(1000),
@@ -181,6 +183,21 @@ describe('followups', () => {
       const created = await generateVenueFollowUps('v1')
 
       expect(created).toBe(7)
+    })
+
+    // #143 — a FINISH TOMORROW push is a deliberate deferral, never a miss.
+    it('suppresses MISSED on a day the task was pushed to tomorrow', async () => {
+      mocks.taskPush.findMany.mockResolvedValue([
+        { taskId: 't1', fromDate: day('2026-11-06') },
+        { taskId: 't1', fromDate: day('2026-11-04') },
+      ])
+
+      const created = await generateVenueFollowUps('v1')
+
+      expect(created).toBe(5)
+      const dates = missedDueDates()
+      expect(dates).not.toContain('2026-11-06')
+      expect(dates).not.toContain('2026-11-04')
     })
   })
 })

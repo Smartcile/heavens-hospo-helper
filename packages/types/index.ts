@@ -178,6 +178,8 @@ export interface WorkerTaskView {
   /** Outcomes the worker is allowed to pick for this task (always contains DONE). */
   allowedOutcomes: string[]
   requireOutcomeReason: boolean
+  /** #143 — the open list allows FINISH TOMORROW for this task. */
+  canPushToTomorrow?: boolean
   /** Current PARTIAL state, when the task is in progress. */
   inProgress: {
     note: string | null
