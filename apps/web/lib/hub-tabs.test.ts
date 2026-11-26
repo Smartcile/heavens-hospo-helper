@@ -23,7 +23,7 @@ describe('hub-tabs', () => {
   })
 
   it('the three team hubs have their tab sets', () => {
-    expect(TEAM_TABS.map((t) => t.id)).toEqual(['staff', 'roster', 'availability', 'clocks', 'payroll'])
+    expect(TEAM_TABS.map((t) => t.id)).toEqual(['staff', 'roster', 'availability', 'clocks', 'breaches', 'payroll'])
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways', 'status'])
     // Floor plans moved to Events → Rooms & Plans; FILES and UPDATES are admin-only.

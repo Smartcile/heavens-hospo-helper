@@ -39,6 +39,8 @@ export const KNOWN_SURFACES: readonly string[] = [
   'components/admin/FtpFourHourPanel.tsx',
   'components/admin/FileBrowser.tsx',
   'components/admin/SupplierInvoicesClient.tsx',
+  'components/admin/BreachNoticesPanel.tsx',
+  'components/worker/WorkerBreachNoticeClient.tsx',
 ]
 
 /** Viewer imports that satisfy a `KNOWN_SURFACES` entry. */
@@ -53,6 +55,8 @@ export const KNOWN_INLINE_ROUTES: readonly string[] = [
   'app/api/admin/events/[id]/pdf/route.ts',
   'app/api/worker/events/[id]/pdf/route.ts',
   'app/api/admin/guides/[id]/pdf/route.ts',
+  'app/api/admin/breach-notices/[id]/pdf/route.ts',
+  'app/api/worker/breach-notices/[id]/pdf/route.ts',
 ]
 
 /**

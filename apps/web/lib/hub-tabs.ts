@@ -86,6 +86,7 @@ export const TEAM_TABS: TabDef[] = [
   { id: 'roster', label: 'ROSTER' },
   { id: 'availability', label: 'AVAILABILITY', title: 'CONFIRM DECLARED AVAILABILITY + TIME OFF' },
   { id: 'clocks', label: 'CLOCKS' },
+  { id: 'breaches', label: 'BREACHES', title: 'BREACH / INFRINGEMENT NOTICES' },
   { id: 'payroll', label: 'PAYROLL' },
 ]
 

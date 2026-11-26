@@ -80,9 +80,10 @@ const LINK_ACCENT: Record<string, [number, number, number]> = {
   RECIPE: [202, 165, 48],
 }
 
-type PdfImageFormat = 'PNG' | 'JPEG' | 'WEBP' | 'GIF'
+export type PdfImageFormat = 'PNG' | 'JPEG' | 'WEBP' | 'GIF'
 
-function imageFormat(dataUrl: string): PdfImageFormat {
+/** The jsPDF format hint for an image data URL. Shared with other PDF libs. */
+export function imageFormat(dataUrl: string): PdfImageFormat {
   const m = /^data:image\/(png|jpe?g|webp|gif)/i.exec(dataUrl)
   if (!m) return 'JPEG'
   const kind = m[1].toLowerCase()
