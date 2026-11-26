@@ -591,3 +591,45 @@ demo rows instead of duplicating them.
 Order/POS selection, kitchen modifiers, per-choice recipe/stock drawdown and
 WooCommerce pushes remain out of scope (Phase 5, deferred).
 
+## 13 — Event menu pricing: units, yields, minimums and lead times (#192, built 2026-11)
+
+An event menu is sold in mixed units, so a BEO line now carries a **unit**
+instead of being a bare `{ menuItemId, qty }`:
+
+| Unit | Quantity | Example |
+|---|---|---|
+| `EACH` | the stored count | canapés, walk-n-fork items |
+| `PER_PERSON` | the event's guest count (falls back to the stored count) | a 2/3-course set menu |
+| `PER_PLATTER` | the stored platter count | a platter that "serves 4–6" |
+
+**Money stays live.** A line stores only non-cash facts (`unit`, `servesMin`,
+`servesMax`) in the block config and in `MenuItem` / `Menu` metadata; every
+total is recomputed from the live `MenuItem.price` / `Menu.pricePerPerson`.
+
+**Product metadata (additive, nullable):** `MenuItem.pricingMode`
+(`EACH | PER_PERSON | PER_PLATTER`) is the default unit for a new line,
+`servesMin`/`servesMax` is the platter yield, `minQty` is the product default
+minimum for a direct event line, and `leadTimeDays` is the notice required
+before the event date. All null = today's behaviour.
+
+**Packages reuse `Menu` + `MenuGroup`** (no separate package tables):
+`Menu.pricingMode` + `Menu.pricePerPerson` make a menu a per-head set menu, and
+`MenuGroup.minSelect`/`maxSelect` describe how many lines the guest must / may
+pick. Choice picks are included in the per-head price; a choice carrying a
+`priceDelta` adds it on top.
+
+**Rules.**
+- A menu line's `MenuMenuItem.minQty` is authoritative over the product's
+  `MenuItem.minQty` when the product is on the menu.
+- Minimums apply only when something is ordered, and are **reported, never
+  clamped** — a minimum breach does not silently change the total.
+- Lead time compares the venue-local event date to today.
+- A purged product or package is skipped and reported, never priced at $0.
+
+**Readers.** The BEO PDF and the customer share page render the unit and yield
+("3 PLATTERS · SERVES 4-6") and group the total by PER PERSON / PER PLATTER /
+EACH. The KITCHEN copy keeps the platter counts with no money; the CLIENT copy
+never shows internal minimums or lead times. The pre-order push (`WooOrder`)
+does **not** opt into package pricing and is out of scope for #192.
+
+

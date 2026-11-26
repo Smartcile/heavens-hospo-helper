@@ -1,13 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { collectEventItems, computeEventTotals } from '@/lib/event-pricing'
+import {
+  collectEventItems,
+  collectPriceableLines,
+  computeEventTotals,
+  describeLineUnit,
+  formatLineYield,
+  parsePricingUnit,
+  suggestPlatterCount,
+  type MenuPrice,
+} from '@/lib/event-pricing'
 
-const MENU_ITEMS = [
+const MENU_ITEMS: MenuPrice[] = [
   { id: 'm1', name: 'ROAST LAMB', price: 42.5 },
   { id: 'm2', name: 'VEGAN RISOTTO', price: 30 },
   { id: 'm3', name: 'HOUSE RED', price: 12 },
 ]
 
-describe('collectEventItems', () => {
+describe('collectEventItems (legacy shape)', () => {
   it('collects items from menu and drinks blocks', () => {
     const items = collectEventItems([
       { type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm1', qty: 2 }] } },
@@ -60,6 +69,62 @@ describe('collectEventItems', () => {
   })
 })
 
+describe('collectPriceableLines', () => {
+  it('keeps the same product on different units as separate lines', () => {
+    const lines = collectPriceableLines([
+      {
+        type: 'MENU_SELECTION',
+        config: {
+          items: [
+            { menuItemId: 'm1', qty: 2, unit: 'EACH' },
+            { menuItemId: 'm1', qty: 10, unit: 'PER_PERSON' },
+          ],
+        },
+      },
+    ])
+    expect(lines).toEqual([
+      { menuItemId: 'm1', qty: 2, unit: 'EACH' },
+      { menuItemId: 'm1', qty: 10, unit: 'PER_PERSON' },
+    ])
+  })
+
+  it('merges the same item + unit across blocks', () => {
+    const lines = collectPriceableLines([
+      { type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm1', qty: 2, unit: 'PER_PLATTER' }] } },
+      { type: 'DRINKS_SELECTION', config: { items: [{ menuItemId: 'm1', qty: 1, unit: 'PER_PLATTER' }] } },
+    ])
+    expect(lines).toEqual([{ menuItemId: 'm1', qty: 3, unit: 'PER_PLATTER' }])
+  })
+
+  it('defaults an unknown/absent unit to EACH', () => {
+    const lines = collectPriceableLines([
+      {
+        type: 'MENU_SELECTION',
+        config: { items: [{ menuItemId: 'm1', qty: 2, unit: 'BANANAS' }] },
+      },
+    ])
+    expect(lines[0].unit).toBe('EACH')
+  })
+
+  it('collects a package line and folds an additive price delta', () => {
+    const lines = collectPriceableLines([
+      {
+        type: 'MENU_SELECTION',
+        config: {
+          items: [
+            { packageId: 'pkg1', qty: 1, unit: 'PER_PERSON' },
+            { menuItemId: 'm1', qty: 1, priceDelta: 3 },
+          ],
+        },
+      },
+    ])
+    expect(lines).toEqual([
+      { packageId: 'pkg1', qty: 1, unit: 'PER_PERSON' },
+      { menuItemId: 'm1', qty: 1, unit: 'EACH', priceDelta: 3 },
+    ])
+  })
+})
+
 describe('computeEventTotals', () => {
   const blocks = [
     { type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm1', qty: 2 }, { menuItemId: 'm2', qty: 1 }] } },
@@ -69,13 +134,15 @@ describe('computeEventTotals', () => {
   it('prices each line and sums the subtotal', () => {
     const totals = computeEventTotals(blocks, MENU_ITEMS, null)
     expect(totals.lines).toEqual([
-      { menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unitPrice: 42.5, total: 85 },
-      { menuItemId: 'm2', name: 'VEGAN RISOTTO', qty: 1, unitPrice: 30, total: 30 },
-      { menuItemId: 'm3', name: 'HOUSE RED', qty: 4, unitPrice: 12, total: 48 },
+      { menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unit: 'EACH', unitPrice: 42.5, total: 85 },
+      { menuItemId: 'm2', name: 'VEGAN RISOTTO', qty: 1, unit: 'EACH', unitPrice: 30, total: 30 },
+      { menuItemId: 'm3', name: 'HOUSE RED', qty: 4, unit: 'EACH', unitPrice: 12, total: 48 },
     ])
     expect(totals.subtotal).toBe(163)
     expect(totals.deposit).toBe(0)
     expect(totals.balance).toBe(163)
+    expect(totals.violations).toEqual([])
+    expect(totals.byUnit).toEqual({ EACH: 163, PER_PERSON: 0, PER_PLATTER: 0 })
   })
 
   it('subtracts the deposit to give the balance', () => {
@@ -90,7 +157,109 @@ describe('computeEventTotals', () => {
     expect(computeEventTotals([], MENU_ITEMS, 999).balance).toBe(-999)
   })
 
-  it('skips items with no matching menu item rather than pricing them at zero', () => {
+  it('prices legacy `{ menuItemId, qty }` blocks identically', () => {
+    const legacy = computeEventTotals(blocks, MENU_ITEMS, 50)
+    const explicit = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [
+              { menuItemId: 'm1', qty: 2, unit: 'EACH' },
+              { menuItemId: 'm2', qty: 1, unit: 'EACH' },
+            ],
+          },
+        },
+        { type: 'DRINKS_SELECTION', config: { items: [{ menuItemId: 'm3', qty: 4, unit: 'EACH' }] } },
+      ],
+      MENU_ITEMS,
+      50,
+    )
+    expect(explicit.subtotal).toBe(legacy.subtotal)
+    expect(explicit.balance).toBe(legacy.balance)
+  })
+
+  it('drives a PER_PERSON line from the guest count and follows a change', () => {
+    const perPerson = [
+      { type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm2', qty: 1, unit: 'PER_PERSON' }] } },
+    ]
+    const ninety = computeEventTotals(perPerson, MENU_ITEMS, null, { guestCount: 90 })
+    expect(ninety.lines[0]).toMatchObject({ qty: 90, unit: 'PER_PERSON', total: 2700 })
+    expect(ninety.byUnit.PER_PERSON).toBe(2700)
+
+    const hundred = computeEventTotals(perPerson, MENU_ITEMS, null, { guestCount: 100 })
+    expect(hundred.lines[0].qty).toBe(100)
+    expect(hundred.lines[0].total).toBe(3000)
+  })
+
+  it("uses the product's pricingMode as the default unit when a line has none", () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'set2', qty: 1 }] } }],
+      [{ id: 'set2', name: 'SET MENU', price: 80, pricingMode: 'PER_PERSON' }],
+      null,
+      { guestCount: 10 },
+    )
+    expect(totals.lines[0]).toMatchObject({ qty: 10, unit: 'PER_PERSON', total: 800 })
+  })
+
+  it('falls back to the stored count for PER_PERSON when no guest count is supplied', () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm2', qty: 12, unit: 'PER_PERSON' }] } }],
+      MENU_ITEMS,
+      null,
+    )
+    expect(totals.lines[0].qty).toBe(12)
+  })
+
+  it('prices a PER_PLATTER line from its stored count and keeps the yield', () => {
+    const platter = [
+      { id: 'pl1', name: 'ANTIPASTO PLATTER', price: 65, servesMin: 4, servesMax: 6 },
+    ]
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'pl1', qty: 3, unit: 'PER_PLATTER' }] } }],
+      platter,
+      null,
+      { guestCount: 20 },
+    )
+    expect(totals.lines[0]).toMatchObject({
+      qty: 3,
+      unit: 'PER_PLATTER',
+      servesMin: 4,
+      servesMax: 6,
+      total: 195,
+    })
+    expect(totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 })
+  })
+
+  it('keeps mixed units as separate lines and splits the subtotal by unit', () => {
+    const items: MenuPrice[] = [
+      { id: 'set', name: '3 COURSE SET', price: 85 },
+      { id: 'pl1', name: 'PLATTER', price: 65, servesMin: 4, servesMax: 6 },
+      { id: 'can', name: 'CANAPE', price: 4 },
+    ]
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [
+              { menuItemId: 'set', qty: 1, unit: 'PER_PERSON' },
+              { menuItemId: 'pl1', qty: 2, unit: 'PER_PLATTER' },
+              { menuItemId: 'can', qty: 30, unit: 'EACH' },
+            ],
+          },
+        },
+      ],
+      items,
+      null,
+      { guestCount: 40 },
+    )
+    expect(totals.lines.map((l) => l.unit)).toEqual(['PER_PERSON', 'PER_PLATTER', 'EACH'])
+    expect(totals.byUnit).toEqual({ EACH: 120, PER_PERSON: 3400, PER_PLATTER: 130 })
+    expect(totals.subtotal).toBe(3650)
+  })
+
+  it('skips a purged product and reports a violation', () => {
     const totals = computeEventTotals(
       [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'gone', qty: 5 }] } }],
       MENU_ITEMS,
@@ -98,6 +267,100 @@ describe('computeEventTotals', () => {
     )
     expect(totals.lines).toEqual([])
     expect(totals.subtotal).toBe(0)
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'MISSING_ITEM', menuItemId: 'gone' }),
+    ])
+  })
+
+  it('prices a package line from the package per-head price', () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ packageId: 'pkg1', qty: 1, unit: 'PER_PERSON' }] } }],
+      MENU_ITEMS,
+      null,
+      {
+        guestCount: 30,
+        packages: [{ id: 'pkg1', name: 'WEDDING PACKAGE', price: 95 }],
+      },
+    )
+    expect(totals.lines[0]).toMatchObject({
+      menuItemId: 'pkg1',
+      packageId: 'pkg1',
+      name: 'WEDDING PACKAGE',
+      qty: 30,
+      unit: 'PER_PERSON',
+      unitPrice: 95,
+      total: 2850,
+    })
+  })
+
+  it('skips a purged package and reports a violation', () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ packageId: 'gone', qty: 1, unit: 'PER_PERSON' }] } }],
+      MENU_ITEMS,
+      null,
+      { guestCount: 30, packages: [{ id: 'pkg1', name: 'WEDDING PACKAGE', price: 95 }] },
+    )
+    expect(totals.lines).toEqual([])
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'MISSING_PACKAGE', packageId: 'gone' }),
+    ])
+  })
+
+  it('reports a minimum violation without clamping the quantity', () => {
+    const items: MenuPrice[] = [{ id: 'can', name: 'CANAPE', price: 4, minQty: 20 }]
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'can', qty: 10 }] } }],
+      items,
+      null,
+    )
+    expect(totals.lines[0]).toMatchObject({ qty: 10, total: 40, minimum: 20 })
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'BELOW_MINIMUM', menuItemId: 'can' }),
+    ])
+  })
+
+  it('does not report a minimum when nothing is ordered', () => {
+    const items: MenuPrice[] = [{ id: 'can', name: 'CANAPE', price: 4, minQty: 20 }]
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'can', qty: 0 }] } }],
+      items,
+      null,
+    )
+    expect(totals.lines).toEqual([])
+    expect(totals.violations).toEqual([])
+  })
+
+  it('flags a lead-time breach only when a lead time is set', () => {
+    const items: MenuPrice[] = [
+      { id: 'can', name: 'CANAPE', price: 4, leadTimeDays: 7 },
+      { id: 'm2', name: 'VEGAN RISOTTO', price: 30 },
+    ]
+    const blocks = [
+      {
+        type: 'MENU_SELECTION',
+        config: {
+          items: [
+            { menuItemId: 'can', qty: 30 },
+            { menuItemId: 'm2', qty: 1 },
+          ],
+        },
+      },
+    ]
+    const close = computeEventTotals(blocks, items, null, {
+      eventDate: '2026-11-28',
+      today: '2026-11-25',
+    })
+    expect(close.violations.filter((v) => v.kind === 'INSIDE_LEAD_TIME')).toHaveLength(1)
+    expect(close.violations[0].menuItemId).toBe('can')
+
+    const far = computeEventTotals(blocks, items, null, {
+      eventDate: '2026-12-15',
+      today: '2026-11-25',
+    })
+    expect(far.violations).toEqual([])
+
+    const noDates = computeEventTotals(blocks, items, null, { guestCount: 40 })
+    expect(noDates.violations).toEqual([])
   })
 
   it('rounds money to two decimals', () => {
@@ -108,5 +371,37 @@ describe('computeEventTotals', () => {
     )
     expect(totals.lines[0].total).toBe(10)
     expect(totals.subtotal).toBe(10)
+  })
+})
+
+describe('unit helpers', () => {
+  it('parses a known unit and falls back to EACH', () => {
+    expect(parsePricingUnit('PER_PERSON')).toBe('PER_PERSON')
+    expect(parsePricingUnit('per_platter')).toBe('EACH')
+    expect(parsePricingUnit(undefined)).toBe('EACH')
+  })
+
+  it('formats a platter yield', () => {
+    expect(formatLineYield(4, 6)).toBe('SERVES 4-6')
+    expect(formatLineYield(4, null)).toBe('SERVES 4')
+    expect(formatLineYield(null, null)).toBeNull()
+  })
+
+  it('describes a line with its unit and yield', () => {
+    expect(describeLineUnit({ unit: 'PER_PLATTER', qty: 3, servesMin: 4, servesMax: 6 })).toBe(
+      '3 PLATTERS · SERVES 4-6',
+    )
+    expect(describeLineUnit({ unit: 'PER_PLATTER', qty: 1, servesMin: 4 })).toBe(
+      '1 PLATTER · SERVES 4',
+    )
+    expect(describeLineUnit({ unit: 'PER_PERSON', qty: 40 })).toBe('40 PEOPLE')
+    expect(describeLineUnit({ unit: 'EACH', qty: 1 })).toBe('1 EACH')
+  })
+
+  it('suggests a platter count from pax and yield', () => {
+    expect(suggestPlatterCount(20, 4)).toBe(5)
+    expect(suggestPlatterCount(21, 4)).toBe(6)
+    expect(suggestPlatterCount(21, null)).toBeNull()
+    expect(suggestPlatterCount(0, 4)).toBeNull()
   })
 })

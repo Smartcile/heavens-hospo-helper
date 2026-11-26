@@ -9,6 +9,7 @@
 import { jsPDF } from 'jspdf'
 import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
 import { pdfSafe } from '@/lib/pdf-safe'
+import { describeLineUnit, type PricingUnit } from '@/lib/event-pricing'
 
 export type BeoPdfVariant = 'FULL' | 'CLIENT' | 'KITCHEN'
 
@@ -22,6 +23,10 @@ export interface BeoPdfLine {
   name: string
   qty: number
   total: number
+  /** EACH / PER_PERSON / PER_PLATTER (#192). Absent reads as EACH. */
+  unit?: PricingUnit
+  servesMin?: number
+  servesMax?: number
 }
 
 export interface BeoPdfData {
@@ -43,7 +48,13 @@ export interface BeoPdfData {
   internalNotes: string | null
   blocks: BeoPdfBlock[]
   menuItems: { id: string; name: string }[]
-  totals: { subtotal: number; deposit: number; balance: number; lines: BeoPdfLine[] }
+  totals: {
+    subtotal: number
+    deposit: number
+    balance: number
+    byUnit?: Record<PricingUnit, number>
+    lines: BeoPdfLine[]
+  }
 }
 
 const VARIANT_TITLE: Record<BeoPdfVariant, string> = {
@@ -96,6 +107,53 @@ export function blocksForVariant(blocks: BeoPdfBlock[], variant: BeoPdfVariant):
 
 function money(n: number): string {
   return `$${n.toFixed(2)}`
+}
+
+export interface BeoPdfSummaryRow {
+  name: string
+  qtyText: string
+  total: number
+}
+
+export interface BeoPdfSummaryGroup {
+  label: string
+  amount: number
+}
+
+/**
+ * The ORDER SUMMARY / DISH TOTALS rows, pure so the unit + yield readout and the
+ * per-unit subtotal grouping are testable without parsing a PDF (#192).
+ */
+export function summaryRows(totals: BeoPdfData['totals']): {
+  lines: BeoPdfSummaryRow[]
+  groups: BeoPdfSummaryGroup[]
+} {
+  const lines = (totals.lines ?? []).map((line) => ({
+    name: line.name,
+    qtyText: line.unit
+      ? describeLineUnit({
+          unit: line.unit,
+          qty: line.qty,
+          servesMin: line.servesMin,
+          servesMax: line.servesMax,
+        })
+      : `× ${line.qty}`,
+    total: line.total,
+  }))
+
+  const groups: BeoPdfSummaryGroup[] = []
+  const byUnit = totals.byUnit
+  if (byUnit) {
+    const order: [PricingUnit, string][] = [
+      ['PER_PERSON', 'PER PERSON'],
+      ['PER_PLATTER', 'PER PLATTER'],
+      ['EACH', 'EACH'],
+    ]
+    for (const [unit, label] of order) {
+      if (byUnit[unit] > 0) groups.push({ label, amount: byUnit[unit] })
+    }
+  }
+  return { lines, groups }
 }
 
 function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?: BlockLibrary) {
@@ -188,7 +246,15 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     y += 6
 
     const rows = Array.isArray(cfg.rows) ? (cfg.rows as Record<string, unknown>[]) : null
-    const items = Array.isArray(cfg.items) ? (cfg.items as { menuItemId: string; qty: number }[]) : null
+    const items = Array.isArray(cfg.items)
+      ? (cfg.items as {
+          menuItemId: string
+          qty: number
+          unit?: PricingUnit
+          servesMin?: number
+          servesMax?: number
+        }[])
+      : null
 
     // Scalar text fields.
     for (const [key, value] of Object.entries(cfg)) {
@@ -210,7 +276,15 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(9.5)
         doc.setTextColor(30)
-        doc.text(pdfSafe(`▪ ${nameOf(it.menuItemId)} × ${it.qty}`), margin + 4, y)
+        const qtyText = it.unit
+          ? describeLineUnit({
+              unit: it.unit,
+              qty: it.qty,
+              servesMin: it.servesMin,
+              servesMax: it.servesMax,
+            })
+          : `× ${it.qty}`
+        doc.text(pdfSafe(`▪ ${nameOf(it.menuItemId)} — ${qtyText}`), margin + 4, y)
         y += 4.5
       }
     }
@@ -246,18 +320,30 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(30)
-    for (const line of data.totals.lines) {
+    const summary = summaryRows(data.totals)
+    for (const line of summary.lines) {
       ensure(6)
-      doc.text(pdfSafe(`▪ ${line.name} × ${line.qty}`), margin + 4, y)
+      const textLines = doc.splitTextToSize(pdfSafe(`▪ ${line.name} — ${line.qtyText}`), innerW - 30) as string[]
+      doc.text(textLines, margin + 4, y)
       if (showMoney) doc.text(money(line.total), pageW - margin, y, { align: 'right' })
-      y += 4.5
+      y += textLines.length * 4.5
     }
 
     if (showMoney) {
       y += 2
       ensure(18)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(90)
+      for (const group of summary.groups) {
+        ensure(6)
+        doc.text(`${group.label}: ${money(group.amount)}`, margin + 4, y)
+        y += 4.5
+      }
+      ensure(18)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(10)
+      doc.setTextColor(0)
       doc.text(`SUBTOTAL: ${money(data.totals.subtotal)}`, margin + 4, y); y += 5
       doc.text(`DEPOSIT: ${money(data.totals.deposit)}`, margin + 4, y); y += 5
       doc.text(`BALANCE: ${money(data.totals.balance)}`, margin + 4, y); y += 5

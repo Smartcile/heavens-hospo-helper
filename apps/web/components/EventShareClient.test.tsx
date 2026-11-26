@@ -25,7 +25,7 @@ const VIEW: PublicEventView = {
     subtotal: 85,
     deposit: 50,
     balance: 35,
-    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unitPrice: 42.5, total: 85 }],
+    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unit: 'EACH', unitPrice: 42.5, total: 85 }],
   },
   approvedAt: null,
   approvedByName: null,
@@ -60,6 +60,40 @@ describe('EventShareClient', () => {
     globalThis.fetch = mockFetch(false)
     render(<EventShareClient token="tok" />)
     await waitFor(() => expect(screen.getByText('LINK NOT AVAILABLE')).toBeTruthy())
+  })
+
+  it('renders the unit, yield and grouped subtotals for a platter line', async () => {
+    const platterView: PublicEventView = {
+      ...VIEW,
+      blocks: [],
+      menuItems: [{ id: 'pl1', name: 'ANTIPASTO' }],
+      totals: {
+        subtotal: 195,
+        deposit: 0,
+        balance: 195,
+        byUnit: { EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 },
+        lines: [
+          {
+            menuItemId: 'pl1',
+            name: 'ANTIPASTO',
+            qty: 3,
+            unit: 'PER_PLATTER',
+            unitPrice: 65,
+            total: 195,
+            servesMin: 4,
+            servesMax: 6,
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(platterView) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+    expect(screen.getByText(/3 PLATTERS · SERVES 4-6/)).toBeTruthy()
+    expect(screen.getByText('PER PLATTER')).toBeTruthy()
   })
 
   it('refuses to send an empty edit request', async () => {

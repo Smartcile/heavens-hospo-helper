@@ -12,7 +12,7 @@ import {
   stripBoundFields,
   type BlockLibrary,
 } from '@/lib/beo-blocks'
-import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
+import { computeEventTotals, type EventBlockLike, type EventPricingOptions, type MenuPrice } from '@/lib/event-pricing'
 // Type-only — keeps jspdf out of every route that imports this module.
 import type { BeoPdfData } from '@/lib/beo-pdf'
 
@@ -27,7 +27,7 @@ export function generateShareToken(): string {
 /** The include shape for a customer-share lookup (no internal-only columns). */
 export const shareEventInclude = {
   venue: { select: { id: true, name: true } },
-  menu: { select: { name: true } },
+  menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true } },
   setup: { select: { name: true } },
   customer: { select: { name: true } },
   blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -81,6 +81,48 @@ export const eventInclude = {
 } satisfies Prisma.EventInclude
 
 export type EventWithBlocks = Prisma.EventGetPayload<{ include: typeof eventInclude }>
+
+/** The menu shape the pricing helper needs (the event's bound set menu). */
+export interface EventPricingMenu {
+  id: string
+  name: string
+  pricingMode: string | null
+  pricePerPerson: number | null
+}
+
+/**
+ * Pricing inputs for an event (#192): the effective product list (a menu line's
+ * `minQty` is authoritative when the product is on the event's menu) and the
+ * package option (a PER_PERSON menu is a per-head package). Callers opt in to
+ * package pricing by passing these options - the pre-order path does not.
+ */
+export async function buildEventPricing(
+  event: { menuId: string | null; menu?: EventPricingMenu | null },
+  products: MenuPrice[],
+): Promise<{ menuItems: MenuPrice[]; options: EventPricingOptions }> {
+  const minByItem = new Map<string, number>()
+  if (event.menuId) {
+    const lines = await prisma.menuMenuItem.findMany({
+      where: { menuId: event.menuId, menuItemId: { not: null }, minQty: { not: null } },
+      select: { menuItemId: true, minQty: true },
+    })
+    for (const line of lines) {
+      if (line.menuItemId && line.minQty != null) minByItem.set(line.menuItemId, line.minQty)
+    }
+  }
+
+  const menuItems = products.map((p) => ({
+    ...p,
+    minQty: minByItem.get(p.id) ?? p.minQty ?? null,
+  }))
+
+  const packages =
+    event.menu && event.menu.pricingMode === 'PER_PERSON' && event.menu.pricePerPerson != null
+      ? [{ id: event.menu.id, name: event.menu.name, price: event.menu.pricePerPerson }]
+      : undefined
+
+  return { menuItems, options: { packages } }
+}
 
 /** Append an entry to an event's append-only history log. */
 export async function logEventEvent(eventId: string, type: string, note: string): Promise<void> {
@@ -399,7 +441,7 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
     where: { id: eventId, venueId, deletedAt: null },
     include: {
       venue: { select: { name: true } },
-      menu: { select: { name: true } },
+      menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true } },
       setup: { select: { name: true } },
       customer: { select: { name: true } },
       blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -409,12 +451,23 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
 
   const menuItems = await prisma.menuItem.findMany({
     where: { venueId, deletedAt: null },
-    select: { id: true, name: true, price: true },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      pricingMode: true,
+      servesMin: true,
+      servesMax: true,
+      minQty: true,
+      leadTimeDays: true,
+    },
   })
+  const pricing = await buildEventPricing(event, menuItems)
   const totals = computeEventTotals(
     event.blocks as unknown as EventBlockLike[],
-    menuItems,
+    pricing.menuItems,
     event.depositAmount,
+    { ...pricing.options, guestCount: event.guestCount, eventDate: event.eventDate.toISOString().slice(0, 10) },
   )
 
   return {
@@ -444,7 +497,15 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
       subtotal: totals.subtotal,
       deposit: totals.deposit,
       balance: totals.balance,
-      lines: totals.lines.map((l) => ({ name: l.name, qty: l.qty, total: l.total })),
+      byUnit: totals.byUnit,
+      lines: totals.lines.map((l) => ({
+        name: l.name,
+        qty: l.qty,
+        unit: l.unit,
+        servesMin: l.servesMin,
+        servesMax: l.servesMax,
+        total: l.total,
+      })),
     },
   }
 }

@@ -42,6 +42,31 @@ const EVENT: EventDetail = {
 
 const REFS = { menus: [], menuItems: [], services: [], setups: [] }
 
+const PRICED_EVENT: EventDetail = {
+  ...EVENT,
+  guestCount: 96,
+  depositAmount: 2500,
+  blocks: [
+    {
+      id: 'b1',
+      type: 'MENU_SELECTION',
+      title: null,
+      config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+      sortOrder: 0,
+    },
+  ],
+}
+
+const PRICED_REFS = {
+  menus: [],
+  menuItems: [
+    { id: 'set', name: '3 COURSE SET', price: 85, pricingMode: 'PER_PERSON' },
+    { id: 'can', name: 'CANAPE', price: 4, minQty: 20 },
+  ],
+  services: [],
+  setups: [],
+}
+
 function renderBuilder() {
   return render(
     <EventBuilder event={EVENT} venueId="v1" refs={REFS} onBack={() => {}} onSaved={() => {}} />,
@@ -196,5 +221,72 @@ describe('EventBuilder', () => {
 
     const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { method?: string }][] } }).mock.calls
     expect(calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(0)
+  })
+})
+
+describe('EventBuilder — per-person pricing (#192)', () => {
+  beforeEach(() => {
+    pdfMocks.PdfViewerModal.mockReset()
+    globalThis.fetch = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(String(url).endsWith('/blocks') ? { saved: [], deleted: 0 } : PRICED_EVENT),
+      }),
+    ) as unknown as typeof fetch
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  function renderPriced() {
+    return render(
+      <EventBuilder event={PRICED_EVENT} venueId="v1" refs={PRICED_REFS} onBack={() => {}} onSaved={() => {}} />,
+    )
+  }
+
+  it('prices a PER_PERSON line at pax x per-head and re-prices when the guest count changes', () => {
+    renderPriced()
+    // 96 guests x $85 = $8,160.00 (also shown in the PER PERSON group).
+    expect(screen.getAllByText('$8160.00').length).toBeGreaterThan(0)
+    expect(screen.getByText('$5660.00')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('event-guests'), { target: { value: '50' } })
+    // 50 x $85 = $4,250.00
+    expect(screen.getAllByText('$4250.00').length).toBeGreaterThan(0)
+    expect(screen.getByTestId('pricing-by-unit')).toBeTruthy()
+  })
+
+  it('USE PAX fills the line quantity with the guest count', () => {
+    renderPriced()
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+
+    const qty = screen.getByLabelText('Quantity') as HTMLInputElement
+    expect(qty.value).toBe('1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'USE PAX' }))
+    expect((screen.getByLabelText('Quantity') as HTMLInputElement).value).toBe('96')
+  })
+
+  it('warns before save when a line is below its minimum', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'can', qty: 10, unit: 'EACH' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={PRICED_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/CANAPE: MINIMUM 20, ORDERED 10/)
   })
 })

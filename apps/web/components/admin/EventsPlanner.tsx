@@ -96,8 +96,8 @@ export function EventsPlanner({
     let alive = true
     ;(async () => {
       const [menus, menuItems, services, setups, templates, areas] = await Promise.all([
-        safeArray<{ id: string; name: string }>(`/api/admin/menus?venueId=${venueId}`),
-        safeArray<{ id: string; name: string; price?: number }>(`/api/admin/menu-items?venueId=${venueId}`),
+        safeArray<BeoRefs['menus'][number]>(`/api/admin/menus?venueId=${venueId}`),
+        safeArray<BeoRefs['menuItems'][number]>(`/api/admin/menu-items?venueId=${venueId}`),
         safeArray<{ id: string; name: string }>(`/api/admin/services?venueId=${venueId}`),
         safeArray<BeoRefs['setups'][number]>(`/api/admin/floorplan-setups?venueId=${venueId}`),
         safeArray<TemplateOption>(`/api/admin/event-templates?venueId=${venueId}`),

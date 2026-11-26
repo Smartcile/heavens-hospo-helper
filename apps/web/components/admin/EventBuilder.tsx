@@ -81,8 +81,15 @@ export interface EventDetail {
 interface Option { id: string; name: string }
 
 export interface BeoRefs {
-  menus: Option[]
-  menuItems: (Option & { price?: number })[]
+  menus: (Option & { pricingMode?: string | null; pricePerPerson?: number | null })[]
+  menuItems: (Option & {
+    price?: number
+    pricingMode?: string | null
+    servesMin?: number | null
+    servesMax?: number | null
+    minQty?: number | null
+    leadTimeDays?: number | null
+  })[]
   services: Option[]
   setups: BeoSetupOption[]
   /** Physical rooms (owned + shared) for the event's room picker (#189). */
@@ -389,10 +396,34 @@ export function EventBuilder({
     return save({ historyNote: result.summary, draftOverride: next })
   }
 
+  const today = new Date().toISOString().slice(0, 10)
+  // The event's bound menu is the package — a PER_PERSON menu prices per head.
+  // Matches the server readers (buildEventPricing) so the builder cannot drift.
+  const boundMenu = draft.menuId ? refs.menus.find((m) => m.id === draft.menuId) : undefined
+  const packages =
+    boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
+      ? [{ id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }]
+      : []
+
   const totals = computeEventTotals(
     draft.blocks as unknown as EventBlockLike[],
-    refs.menuItems.map((m) => ({ id: m.id, name: m.name, price: m.price ?? 0 })),
+    refs.menuItems.map((m) => ({
+      id: m.id,
+      name: m.name,
+      price: m.price ?? 0,
+      pricingMode: m.pricingMode ?? null,
+      servesMin: m.servesMin ?? null,
+      servesMax: m.servesMax ?? null,
+      minQty: m.minQty ?? null,
+      leadTimeDays: m.leadTimeDays ?? null,
+    })),
     draft.depositAmount === '' ? 0 : Number(draft.depositAmount),
+    {
+      guestCount: draft.guestCount,
+      eventDate: draft.eventDate,
+      today,
+      ...(packages.length > 0 ? { packages } : {}),
+    },
   )
 
   const eventValues = draft as unknown as Record<string, unknown>
@@ -421,7 +452,7 @@ export function EventBuilder({
           <Input label="Date" type="date" value={draft.eventDate} onChange={(e) => patch({ eventDate: e.target.value })} />
           <Input label="Start" type="time" value={draft.startTime ?? ''} onChange={(e) => patch({ startTime: e.target.value })} />
           <Input label="End" type="time" value={draft.endTime ?? ''} onChange={(e) => patch({ endTime: e.target.value })} />
-          <Input label="Guests" type="number" value={String(draft.guestCount)} onChange={(e) => patch({ guestCount: Number(e.target.value) })} />
+          <Input label="Guests" type="number" data-testid="event-guests" value={String(draft.guestCount)} onChange={(e) => patch({ guestCount: Number(e.target.value) })} />
           <Input label="Dining style" value={draft.diningStyle ?? ''} placeholder="PLATED" onChange={(e) => patch({ diningStyle: e.target.value })} />
           <Select
             label="Room setup"
@@ -483,21 +514,46 @@ export function EventBuilder({
           {pushMsg && <span className="font-mono text-xs uppercase text-accent">{pushMsg}</span>}
         </div>
 
-        <div className="border border-grey-mid p-3 grid grid-cols-3 gap-3">
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
-            <div className="font-mono text-sm text-white">${totals.subtotal.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
-            <div className="font-mono text-sm text-white">${totals.deposit.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
-            <div className={`font-mono text-sm ${totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
-              ${totals.balance.toFixed(2)}
+        <div className="border border-grey-mid p-3 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
+              <div className="font-mono text-sm text-white">${totals.subtotal.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
+              <div className="font-mono text-sm text-white">${totals.deposit.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
+              <div className={`font-mono text-sm ${totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
+                ${totals.balance.toFixed(2)}
+              </div>
             </div>
           </div>
+          {(totals.byUnit.PER_PERSON > 0 || totals.byUnit.PER_PLATTER > 0 || totals.byUnit.EACH > 0) && (
+            <div className="grid grid-cols-3 gap-3 border-t border-grey-mid pt-2" data-testid="pricing-by-unit">
+              {([
+                ['PER_PERSON', 'PER PERSON'],
+                ['PER_PLATTER', 'PER PLATTER'],
+                ['EACH', 'EACH'],
+              ] as const).map(([unit, label]) => (
+                <div key={unit}>
+                  <div className="font-mono text-xs uppercase text-grey-light mb-0.5">{label}</div>
+                  <div className="font-mono text-xs text-white">${totals.byUnit[unit].toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {totals.violations.length > 0 && (
+            <div className="border border-danger p-2 space-y-1" data-testid="pricing-violations">
+              {totals.violations.map((v, i) => (
+                <p key={`${v.kind}-${i}`} className="font-mono text-2xs uppercase text-danger">
+                  {v.message}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -618,6 +674,9 @@ export function EventBuilder({
                       menuItems={refs.menuItems}
                       setups={refs.setups}
                       library={library}
+                      guestCount={draft.guestCount}
+                      eventDate={draft.eventDate}
+                      today={today}
                       onConfigChange={(config) => updateBlock(b.id, { config })}
                       onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
                     />

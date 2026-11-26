@@ -87,9 +87,19 @@ export function MenuBuilder({
   const [paxEnabled, setPaxEnabled] = useState(!!menu && (menu.minPax != null || menu.maxPax != null))
   const [minPax, setMinPax] = useState(menu?.minPax?.toString() ?? '')
   const [maxPax, setMaxPax] = useState(menu?.maxPax?.toString() ?? '')
+  const [perPerson, setPerPerson] = useState(menu?.pricingMode === 'PER_PERSON')
+  const [pricePerPerson, setPricePerPerson] = useState(menu?.pricePerPerson?.toString() ?? '')
   const [isActive, setIsActive] = useState(menu?.isActive ?? true)
 
-  const [groups, setGroups] = useState<MenuGroupDraft[]>(() => (menu?.groups ?? []).map((g) => ({ key: g.id, id: g.id, name: g.name })))
+  const [groups, setGroups] = useState<MenuGroupDraft[]>(() =>
+    (menu?.groups ?? []).map((g) => ({
+      key: g.id,
+      id: g.id,
+      name: g.name,
+      minSelect: g.minSelect ?? null,
+      maxSelect: g.maxSelect ?? null,
+    })),
+  )
   const [lines, setLines] = useState<MenuLineDraft[]>(() => (menu?.items ?? []).map((l) => toDraftLine(l, uid())))
 
   const [search, setSearch] = useState('')
@@ -258,7 +268,14 @@ export function MenuBuilder({
     }
 
     setSaving(true)
-    const groupsPayload = groups.map((g, i) => ({ id: g.id, _clientId: g.key, name: g.name.toUpperCase().trim(), sortOrder: i }))
+    const groupsPayload = groups.map((g, i) => ({
+      id: g.id,
+      _clientId: g.key,
+      name: g.name.toUpperCase().trim(),
+      sortOrder: i,
+      minSelect: g.minSelect ?? null,
+      maxSelect: g.maxSelect ?? null,
+    }))
     const itemsPayload = lines.map((l, i) => {
       const group = groups.find((g) => g.key === l.groupKey)
       return {
@@ -278,6 +295,8 @@ export function MenuBuilder({
       description: description || null,
       minPax: min,
       maxPax: max,
+      pricingMode: perPerson ? 'PER_PERSON' : null,
+      pricePerPerson: perPerson && pricePerPerson !== '' ? parseFloat(pricePerPerson) || 0 : null,
       isActive,
       ...(venueId ? { venueId } : {}),
       groups: groupsPayload,
@@ -451,6 +470,23 @@ export function MenuBuilder({
                 <div className="w-28"><Input label="MAX PAX" type="number" value={maxPax} onChange={(e) => setMaxPax(e.target.value)} placeholder="ANY" /></div>
               </>
             )}
+            <button
+              onClick={() => setPerPerson((v) => !v)}
+              className={`font-mono text-xs uppercase px-3 py-2 border ${perPerson ? 'border-info text-info' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
+            >
+              PER PERSON: {perPerson ? 'ON' : 'OFF'}
+            </button>
+            {perPerson && (
+              <div className="w-32">
+                <Input
+                  label="PRICE PER PERSON"
+                  type="number"
+                  value={pricePerPerson}
+                  onChange={(e) => setPricePerPerson(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -527,6 +563,24 @@ export function MenuBuilder({
                   <span className="w-1.5 h-3 bg-gold shrink-0" />
                   <div className="flex-1 min-w-0">
                     <Input value={g.name} onChange={(e) => patchGroup(g.key, { name: e.target.value.toUpperCase() })} placeholder="GROUP NAME" />
+                  </div>
+                  <div className="w-20 shrink-0">
+                    <Input
+                      label="MIN SEL"
+                      type="number"
+                      value={g.minSelect ?? ''}
+                      onChange={(e) => patchGroup(g.key, { minSelect: e.target.value === '' ? null : Number(e.target.value) })}
+                      placeholder="ANY"
+                    />
+                  </div>
+                  <div className="w-20 shrink-0">
+                    <Input
+                      label="MAX SEL"
+                      type="number"
+                      value={g.maxSelect ?? ''}
+                      onChange={(e) => patchGroup(g.key, { maxSelect: e.target.value === '' ? null : Number(e.target.value) })}
+                      placeholder="ANY"
+                    />
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => moveGroup(i, -1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↑</button>

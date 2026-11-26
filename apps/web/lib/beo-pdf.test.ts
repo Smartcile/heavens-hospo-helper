@@ -5,6 +5,7 @@ import {
   beoPdfFilename,
   blocksForVariant,
   pdfBlockConfig,
+  summaryRows,
   type BeoPdfBlock,
   type BeoPdfData,
 } from '@/lib/beo-pdf'
@@ -132,6 +133,23 @@ describe('generateBeoPdf', () => {
     const doc = generateBeoPdf({ ...DATA, blocks: [], totals: { subtotal: 0, deposit: 0, balance: 0, lines: [] } }, 'KITCHEN')
     expect(beoPdfToBuffer(doc).byteLength).toBeGreaterThan(100)
   })
+
+  it('renders mixed units and grouped subtotals for every variant', () => {
+    const totals: BeoPdfData['totals'] = {
+      subtotal: 3650,
+      deposit: 0,
+      balance: 3650,
+      byUnit: { EACH: 120, PER_PERSON: 3400, PER_PLATTER: 130 },
+      lines: [
+        { name: 'SET MENU', qty: 40, unit: 'PER_PERSON', total: 3400 },
+        { name: 'PLATTER', qty: 2, unit: 'PER_PLATTER', servesMin: 4, servesMax: 6, total: 130 },
+        { name: 'CANAPE', qty: 30, unit: 'EACH', total: 120 },
+      ],
+    }
+    for (const variant of ['FULL', 'CLIENT', 'KITCHEN'] as const) {
+      expect(beoPdfToBuffer(generateBeoPdf({ ...DATA, totals }, variant)).byteLength).toBeGreaterThan(100)
+    }
+  })
 })
 
 describe('beoPdfFilename', () => {
@@ -146,5 +164,54 @@ describe('beoPdfFilename', () => {
 
   it('falls back for a blank name', () => {
     expect(beoPdfFilename('   ')).toBe('BEO - EVENT.pdf')
+  })
+})
+
+describe('summaryRows (#192)', () => {
+  it('renders the unit and yield for a platter', () => {
+    const { lines } = summaryRows({
+      subtotal: 195,
+      deposit: 0,
+      balance: 195,
+      lines: [
+        { name: 'ANTIPASTO', qty: 3, unit: 'PER_PLATTER', servesMin: 4, servesMax: 6, total: 195 },
+      ],
+    })
+    expect(lines[0].qtyText).toBe('3 PLATTERS · SERVES 4-6')
+  })
+
+  it('renders people for a per-person line and keeps legacy × qty', () => {
+    const { lines } = summaryRows({
+      subtotal: 100,
+      deposit: 0,
+      balance: 100,
+      lines: [
+        { name: 'SET MENU', qty: 40, unit: 'PER_PERSON', total: 3400 },
+        { name: 'LEGACY', qty: 2, total: 10 },
+      ],
+    })
+    expect(lines[0].qtyText).toBe('40 PEOPLE')
+    expect(lines[1].qtyText).toBe('× 2')
+  })
+
+  it('groups the subtotal by unit, skipping empty groups', () => {
+    const { groups } = summaryRows({
+      subtotal: 3650,
+      deposit: 0,
+      balance: 3650,
+      byUnit: { EACH: 120, PER_PERSON: 3400, PER_PLATTER: 130 },
+      lines: [],
+    })
+    expect(groups).toEqual([
+      { label: 'PER PERSON', amount: 3400 },
+      { label: 'PER PLATTER', amount: 130 },
+      { label: 'EACH', amount: 120 },
+    ])
+  })
+
+  it('prints no groups when byUnit is not supplied', () => {
+    expect(
+      summaryRows({ subtotal: 10, deposit: 0, balance: 10, lines: [] }).groups,
+    ).toEqual([])
   })
 })

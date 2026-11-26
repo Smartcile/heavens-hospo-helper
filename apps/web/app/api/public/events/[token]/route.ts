@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
-import { eventByShareToken } from '@/lib/events.server'
+import { eventByShareToken, buildEventPricing } from '@/lib/events.server'
 import { buildPublicEventView } from '@/lib/event-share'
 import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
@@ -18,12 +18,27 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const menuItems = await prisma.menuItem.findMany({
     where: { venueId: event.venueId, deletedAt: null },
-    select: { id: true, name: true, price: true },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      pricingMode: true,
+      servesMin: true,
+      servesMax: true,
+      minQty: true,
+      leadTimeDays: true,
+    },
   })
+  const pricing = await buildEventPricing(event, menuItems)
   const totals = computeEventTotals(
     event.blocks as unknown as EventBlockLike[],
-    menuItems,
+    pricing.menuItems,
     event.depositAmount,
+    {
+      ...pricing.options,
+      guestCount: event.guestCount,
+      eventDate: event.eventDate.toISOString().slice(0, 10),
+    },
   )
 
   const library = await loadBlockLibrary(event.venueId)
@@ -51,7 +66,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       venueName: event.venue.name,
       menuName: event.menu?.name ?? null,
       setupName: event.setup?.name ?? null,
-      menuItems: menuItems.map((m) => ({ id: m.id, name: m.name })),
+      menuItems: pricing.menuItems.map((m) => ({ id: m.id, name: m.name })),
       totals,
       requests: event.changeRequests.map((r) => ({
         id: r.id,
