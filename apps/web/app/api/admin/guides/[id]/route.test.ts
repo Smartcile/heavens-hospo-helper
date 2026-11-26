@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const { prisma, getServerSession, guardAccess, postRetrainNotice } = vi.hoisted(() => ({
-  prisma: { guide: { findUnique: vi.fn(), update: vi.fn() } },
+  prisma: {
+    guide: { findUnique: vi.fn(), update: vi.fn() },
+    supplier: { updateMany: vi.fn() },
+    $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+  },
   getServerSession: vi.fn(),
   guardAccess: vi.fn(),
   postRetrainNotice: vi.fn(),
@@ -33,7 +37,7 @@ vi.mock('@/lib/guides.server', () => ({
   tableRowsWrite: vi.fn(() => ({})),
 }))
 
-import { PUT } from './route'
+import { DELETE, PUT } from './route'
 
 const req = (body: unknown) => ({ json: async () => body } as unknown as NextRequest)
 
@@ -59,6 +63,7 @@ beforeEach(() => {
     audiences: [{ kind: 'SECTION', targetId: 's1' }],
   }
   prisma.guide.update.mockImplementation(async () => saved)
+  prisma.supplier.updateMany.mockResolvedValue({ count: 1 })
 })
 
 describe('PUT /api/admin/guides/[id] re-training', () => {
@@ -117,5 +122,21 @@ describe('PUT /api/admin/guides/[id] re-training', () => {
 
     expect(res.status).toBe(200)
     expect(postRetrainNotice).toHaveBeenCalled()
+  })
+})
+
+describe('DELETE /api/admin/guides/[id]', () => {
+  it('clears supplier drop-off links in the same transaction as the soft delete', async () => {
+    const res = await DELETE({} as NextRequest, { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    expect(prisma.supplier.updateMany).toHaveBeenCalledWith({
+      where: { dropOffGuideId: 'g1' },
+      data: { dropOffGuideId: null },
+    })
+    expect(prisma.guide.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
+    )
+    expect(prisma.$transaction).toHaveBeenCalled()
   })
 })

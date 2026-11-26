@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+
+const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
+  prisma: { guide: { findMany: vi.fn() } },
+  getServerSession: vi.fn(),
+  guardAccess: vi.fn(),
+}))
+
+vi.mock('next-auth', () => ({ getServerSession }))
+vi.mock('@/lib/auth', () => ({ authOptions: {} }))
+vi.mock('@hospo-ops/db', () => ({ prisma }))
+vi.mock('@/lib/permissions', () => ({ guardAccess }))
+
+import { GET } from './route'
+
+const request = (venueId?: string) =>
+  new NextRequest(
+    `http://localhost/api/admin/suppliers/dropoff-guide-options${venueId ? `?venueId=${venueId}` : ''}`,
+  )
+
+describe('/api/admin/suppliers/dropoff-guide-options', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getServerSession.mockResolvedValue({ user: { id: 'u1', role: 'ADMIN', venueId: 'v1' } })
+    guardAccess.mockResolvedValue(null)
+    prisma.guide.findMany.mockResolvedValue([
+      { id: 'g1', title: 'BIDFOOD DROP-OFF', status: 'PUBLISHED' },
+      { id: 'g2', title: 'NEW WORLD DROP-OFF', status: 'DRAFT' },
+    ])
+  })
+
+  it('requires a session', async () => {
+    getServerSession.mockResolvedValue(null)
+
+    const res = await GET(request())
+
+    expect(res.status).toBe(401)
+    expect(prisma.guide.findMany).not.toHaveBeenCalled()
+  })
+
+  it('requires the inventory view grant', async () => {
+    guardAccess.mockResolvedValue(new Response('Forbidden', { status: 403 }))
+
+    const res = await GET(request())
+
+    expect(res.status).toBe(403)
+    expect(prisma.guide.findMany).not.toHaveBeenCalled()
+  })
+
+  it('returns id/title/status for live SUPPLIER_INFO guides only', async () => {
+    const res = await GET(request())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(prisma.guide.findMany).toHaveBeenCalledWith({
+      where: { venueId: 'v1', deletedAt: null, guideType: 'SUPPLIER_INFO' },
+      select: { id: true, title: true, status: true },
+      orderBy: { title: 'asc' },
+    })
+    expect(body).toHaveLength(2)
+    expect(body[1]).toEqual({ id: 'g2', title: 'NEW WORLD DROP-OFF', status: 'DRAFT' })
+  })
+
+  it('locks a manager to their own venue', async () => {
+    getServerSession.mockResolvedValue({ user: { id: 'u1', role: 'MANAGER', venueId: 'v-manager' } })
+
+    await GET(request('v-other'))
+
+    expect(prisma.guide.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { venueId: 'v-manager', deletedAt: null, guideType: 'SUPPLIER_INFO' } }),
+    )
+  })
+})

@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseImportKey } from '@/lib/import/similarity'
-import { isGuideType } from '@/lib/guide-types'
+import { isGuideType, isSupplierInfo } from '@/lib/guide-types'
 import {
   cleanAudiences,
   cleanBodyHtml,
@@ -192,6 +192,8 @@ export async function POST(req: NextRequest) {
           continue
         }
         const guideType = isGuideType(rawType) ? rawType : 'HOW_TO'
+        // Supplier guides are reference-only; never tracked or signed off.
+        const referenceOnly = isSupplierInfo(guideType)
 
         // Audiences
         const audiences: GuideAudienceInput[] = []
@@ -296,8 +298,8 @@ export async function POST(req: NextRequest) {
               guideType,
               bodyHtml: cleanBodyHtml(values.bodyHtml),
               folderId,
-              isTracked: values.isTracked === true,
-              requiresSignOff: values.requiresSignOff === true,
+              isTracked: referenceOnly ? false : values.isTracked === true,
+              requiresSignOff: referenceOnly ? false : values.requiresSignOff === true,
               ...(action === 'REVIVE' ? { deletedAt: null, status: 'DRAFT' } : {}),
               audiences: { deleteMany: {}, create: cleanAud },
             },
@@ -330,8 +332,8 @@ export async function POST(req: NextRequest) {
             bodyHtml: cleanBodyHtml(values.bodyHtml),
             folderId,
             status: 'DRAFT',
-            isTracked: values.isTracked === true,
-            requiresSignOff: values.requiresSignOff === true,
+            isTracked: referenceOnly ? false : values.isTracked === true,
+            requiresSignOff: referenceOnly ? false : values.requiresSignOff === true,
             audiences: cleanAud.length ? { create: cleanAud } : undefined,
             steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
           },

@@ -97,7 +97,7 @@ export function buildGuideImportPrompt({ venueName }: { venueName?: string } = {
     `}`,
     ``,
     `Rules:`,
-    `- guideType is HOW_TO, SOP, FAQ, TRAINING, POLICY or OTHER. Never PRODUCT_REFERENCE.`,
+    `- guideType is HOW_TO, SOP, FAQ, TRAINING, POLICY, SUPPLIER_INFO or OTHER. Never PRODUCT_REFERENCE.`,
     `- audiences kind is DEPARTMENT, SECTION or POSITION; name must be an existing venue name.`,
     `- links kind is ITEM, TASK, CHECKLIST, GUIDE, SECTION or RECIPE; name must be an existing record.`,
     `- steps content and body are plain text or simple Markdown.`,

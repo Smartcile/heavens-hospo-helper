@@ -28,12 +28,26 @@ export async function GET(_req: NextRequest) {
     }),
     prisma.supplier.findMany({
       where: { venueId: session.venueId, deletedAt: null, isActive: true },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        dropOffGuide: { select: { id: true, title: true, status: true, deletedAt: true } },
+      },
       orderBy: { name: 'asc' },
     }),
   ])
 
-  return NextResponse.json({ deliveries, catalog, suppliers, firstName: session.firstName })
+  // Only a PUBLISHED, live guide is exposed to the phone. A draft assignment
+  // stays manager-side until it is published.
+  const supplierOptions = suppliers.map(({ dropOffGuide, ...supplier }) => ({
+    ...supplier,
+    dropOffGuide:
+      dropOffGuide && dropOffGuide.status === 'PUBLISHED' && !dropOffGuide.deletedAt
+        ? { id: dropOffGuide.id, title: dropOffGuide.title, status: dropOffGuide.status }
+        : null,
+  }))
+
+  return NextResponse.json({ deliveries, catalog, suppliers: supplierOptions, firstName: session.firstName })
 }
 
 export async function POST(req: NextRequest) {

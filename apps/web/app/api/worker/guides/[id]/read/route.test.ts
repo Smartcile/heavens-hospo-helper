@@ -92,4 +92,16 @@ describe('GET /api/worker/guides/[id]/read', () => {
     expect(res.status).toBe(404)
     expect(db.imageAnnotation.findMany).not.toHaveBeenCalled()
   })
+
+  it('opens a published SUPPLIER_INFO guide read-only', async () => {
+    db.guide.findUnique.mockResolvedValue({ ...guide, guideType: 'SUPPLIER_INFO', title: 'BIDFOOD DROP-OFF' })
+
+    const res = await GET(request(), { params: { id: 'g1' } })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.guideType).toBe('SUPPLIER_INFO')
+    expect(body.title).toBe('BIDFOOD DROP-OFF')
+    expect(body.steps).toHaveLength(1)
+  })
 })

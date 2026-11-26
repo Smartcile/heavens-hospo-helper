@@ -4,6 +4,7 @@ import { resolveStaffGuides } from '@/lib/guides'
 import { guideTrainingState } from '@/lib/guide-warnings'
 import { workerGuideAccess, workerMayAssignTraining } from '@/lib/worker-guide-access'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { isSupplierInfo } from '@/lib/guide-types'
 import { prisma } from '@hospo-ops/db'
 import {
   cleanAudiences,
@@ -151,19 +152,23 @@ export async function POST(req: NextRequest) {
   const tgs = cleanTaskGuides(taskGuides)
   const auds = cleanAudiences(audiences)
 
+  const cleanGuideType = guideTypeValue(guideType)
+  // Supplier guides are reference-only; never tracked or signed off.
+  const referenceOnly = isSupplierInfo(cleanGuideType)
+
   const guide = await prisma.guide.create({
     data: {
       title: String(title).toUpperCase().trim(),
       description: description?.trim() || null,
       category: category ? String(category).toUpperCase().trim() : null,
-      guideType: guideTypeValue(guideType),
+      guideType: cleanGuideType,
       bodyHtml: cleanBodyHtml(bodyHtml),
       venueId: session.venueId,
       departmentId: departmentId || null,
       status: 'DRAFT',
-      isTracked: !!isTracked,
+      isTracked: referenceOnly ? false : !!isTracked,
       isOnboarding: !!isOnboarding,
-      requiresSignOff: !!requiresSignOff,
+      requiresSignOff: referenceOnly ? false : !!requiresSignOff,
       steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
       taskGuides: tgs.length ? { create: tgs } : undefined,
       audiences: auds.length ? { create: auds } : undefined,

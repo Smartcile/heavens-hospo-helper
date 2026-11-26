@@ -19,7 +19,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, contact, email, phone, notes } = await req.json()
+  const { name, contact, email, phone, notes, dropOffGuideId } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (contact !== undefined) data.contact = contact || null
@@ -27,7 +27,37 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (phone !== undefined) data.phone = phone || null
   if (notes !== undefined) data.notes = notes || null
 
-  const updated = await prisma.supplier.update({ where: { id: params.id }, data })
+  // A supplier may only point at a live SUPPLIER_INFO guide in its own venue.
+  // DRAFT is allowed on purpose — the supplier screen warns "PUBLISH TO SHOW
+  // WORKERS" and the worker delivery screen hides it until published.
+  if (dropOffGuideId !== undefined) {
+    if (dropOffGuideId) {
+      const guide = await prisma.guide.findFirst({
+        where: {
+          id: String(dropOffGuideId),
+          venueId: supplier.venueId,
+          deletedAt: null,
+          guideType: 'SUPPLIER_INFO',
+        },
+        select: { id: true },
+      })
+      if (!guide) {
+        return NextResponse.json(
+          { error: 'DROP-OFF GUIDE MUST BE A LIVE SUPPLIER INFO GUIDE IN THIS VENUE' },
+          { status: 400 },
+        )
+      }
+      data.dropOffGuideId = guide.id
+    } else {
+      data.dropOffGuideId = null
+    }
+  }
+
+  const updated = await prisma.supplier.update({
+    where: { id: params.id },
+    data,
+    include: { dropOffGuide: { select: { id: true, title: true, status: true, guideType: true } } },
+  })
   return NextResponse.json(updated)
 }
 

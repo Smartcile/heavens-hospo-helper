@@ -134,6 +134,15 @@ describe('GuidesClient', () => {
     expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
   })
 
+  it('offers SUPPLIER INFO in the guide type dropdown', async () => {
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('+ NEW GUIDE'))
+
+    expect(screen.getByRole('option', { name: 'SUPPLIER INFO' })).toBeTruthy()
+  })
+
   it('drops the legacy onboarding badge, controls and save payload', async () => {
     render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())

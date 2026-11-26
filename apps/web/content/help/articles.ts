@@ -499,6 +499,9 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<li>On the <strong>STATUS</strong> tab, see who is missing or out of date and sign off completions in one place.</li>',
       '</ol>',
       '<p>Product-reference guides show a table of products instead of steps, and guides and checklists can be downloaded as PDFs from the admin side.</p>',
+      '<h3>Supplier drop-off guides</h3>',
+      '<p>Choose the <strong>SUPPLIER INFO</strong> type on a guide to make it a supplier drop-off document — the same steps, images and optional PDF as any other guide, but written as instructions for where and how a supplier delivers.</p>',
+      '<p>Assign one guide per supplier under <strong>Settings → SUPPLIERS</strong>. The list shows <strong>DROP-OFF GUIDE: &lt;title&gt; · &lt;status&gt;</strong>, and a draft is marked <strong>PUBLISH TO SHOW WORKERS</strong>. Once the guide is published, staff receiving a delivery see <strong>DROP-OFF INSTRUCTIONS</strong> as soon as they pick that supplier on <strong>/w/deliveries</strong>, and can read the full guide without leaving the screen.</p>',
     ].join(''),
   },
   {
@@ -731,6 +734,9 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<h2>Food safety</h2>',
       '<p><strong>Compliance → Food Safety</strong> has four tabs: TASKS, DELIVERIES, ALERTS and LOGGERS.</p>',
       '<ul><li><strong>TASKS</strong> — reading tasks (fridge, freezer, hot hold) with pass/fail ranges. A fail raises an alert.</li><li><strong>DELIVERIES</strong> — record a delivery, its temperatures and what was accepted or rejected.</li><li><strong>ALERTS</strong> — every out-of-range reading or rejected delivery, open until resolved with a note.</li><li><strong>LOGGERS</strong> — reserved for the sensor phase.</li></ul>',
+      '<h3>Where to put a delivery</h3>',
+      '<p>A supplier can carry its own drop-off instructions. Create a guide with Type <strong>SUPPLIER INFO</strong> under <strong>Training → Playbook</strong> (steps, photos and an optional PDF), then assign it to the supplier under <strong>Settings → SUPPLIERS</strong>. Publish the guide when it is ready — a draft stays hidden from the floor.</p>',
+      '<p>On the phone, staff tap <strong>+ RECEIVE</strong>, choose the supplier, and the <strong>DROP-OFF INSTRUCTIONS</strong> button appears when that supplier has a published guide. It opens the real guide read-only: the same images, steps and PDF a manager sees.</p>',
     ].join(''),
   },
   {

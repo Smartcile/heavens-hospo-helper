@@ -7,6 +7,13 @@ import { Select } from '@/components/ui/Select'
 import { deliveryLineVerdict, vehicleVerdict, verdictLabel, type Verdict } from '@/lib/food-safety'
 import { cn } from '@/lib/utils'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
+import { GuidePopup } from '@/components/GuidePopup'
+
+interface SupplierOption {
+  id: string
+  name: string
+  dropOffGuide: { id: string; title: string; status: string } | null
+}
 
 interface CatalogItem {
   id: string
@@ -39,7 +46,7 @@ interface WorkerDelivery {
 interface WorkerDeliveryData {
   deliveries: WorkerDelivery[]
   catalog: CatalogItem[]
-  suppliers: { id: string; name: string }[]
+  suppliers: SupplierOption[]
   firstName: string
 }
 
@@ -79,8 +86,9 @@ export function WorkerDeliveriesClient() {
   const [itemSearch, setItemSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [guideId, setGuideId] = useState<string | null>(null)
 
-  useWorkerImmersive(open)
+  useWorkerImmersive(open || !!guideId)
 
   const load = useCallback(async () => {
     const r = await fetch('/api/worker/deliveries')
@@ -153,6 +161,7 @@ export function WorkerDeliveriesClient() {
 
   const liveLineVerdict = (l: LineForm) => deliveryLineVerdict(l.temp !== '' ? Number(l.temp) : null, l.storageType)
   const vehicleVerdictValue = vehicleVerdict(vehicleTemp !== '' ? Number(vehicleTemp) : null, lines.map((l) => l.storageType))
+  const selectedSupplier = (data?.suppliers ?? []).find((s) => s.id === supplierId) ?? null
 
   return (
     <div className="min-h-screen bg-black">
@@ -231,6 +240,16 @@ export function WorkerDeliveriesClient() {
             />
             {!supplierId && (
               <Input label="SUPPLIER NAME" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="E.G. BIDFOOD" />
+            )}
+            {selectedSupplier?.dropOffGuide && (
+              <button
+                type="button"
+                onClick={() => setGuideId(selectedSupplier.dropOffGuide!.id)}
+                className="w-full border border-grey-mid px-3 py-3 text-left hover:border-white transition-colors"
+              >
+                <span className="block font-mono text-xs uppercase tracking-wider text-grey-light">DROP-OFF INSTRUCTIONS</span>
+                <span className="block font-mono text-sm text-white truncate">{selectedSupplier.dropOffGuide.title} →</span>
+              </button>
             )}
             <div className="grid grid-cols-2 gap-3">
               <Input label="VEHICLE TEMP (°C)" type="number" inputMode="decimal" value={vehicleTemp} onChange={(e) => setVehicleTemp(e.target.value)} />
@@ -311,6 +330,8 @@ export function WorkerDeliveriesClient() {
           </div>
         </div>
       )}
+
+      <GuidePopup guideId={guideId} variant="worker" onClose={() => setGuideId(null)} />
     </div>
   )
 }

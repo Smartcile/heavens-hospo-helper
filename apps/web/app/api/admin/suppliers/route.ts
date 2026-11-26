@@ -16,9 +16,26 @@ export async function GET(req: NextRequest) {
 
   const suppliers = await prisma.supplier.findMany({
     where: { venueId, deletedAt: null },
+    include: {
+      dropOffGuide: { select: { id: true, title: true, status: true, guideType: true, deletedAt: true } },
+    },
     orderBy: { name: 'asc' },
   })
-  return NextResponse.json(suppliers)
+  // A soft-deleted guide must never leave behind a link to a dead page.
+  return NextResponse.json(
+    suppliers.map(({ dropOffGuide, ...supplier }) => ({
+      ...supplier,
+      dropOffGuide:
+        dropOffGuide && !dropOffGuide.deletedAt
+          ? {
+              id: dropOffGuide.id,
+              title: dropOffGuide.title,
+              status: dropOffGuide.status,
+              guideType: dropOffGuide.guideType,
+            }
+          : null,
+    })),
+  )
 }
 
 export async function POST(req: NextRequest) {

@@ -71,6 +71,12 @@ describe('parseGuideImportAnswer', () => {
     expect(parseGuideImportAnswer('## ONLY STEPS')).toEqual({ error: 'MARKDOWN NEEDS A TITLE (AN H1 LINE)' })
   })
 
+  it('accepts a SUPPLIER_INFO type', () => {
+    const rows = parseAndRows([{ title: 'BIDFOOD DROP-OFF', guideType: 'SUPPLIER_INFO', audiences: [] }])
+    expect(rows[0].values.guideType).toBe('SUPPLIER_INFO')
+    expect(rows[0].issues.some((i) => i.code === 'GUIDE_TYPE_INVALID')).toBe(false)
+  })
+
   it('flags a PRODUCT_REFERENCE type as an error', () => {
     const rows = parseAndRows([{ title: 'WINE LIST', guideType: 'PRODUCT_REFERENCE', audiences: [] }])
     expect(rows[0].issues.some((i) => i.code === 'PRODUCT_REFERENCE_UNSUPPORTED' && i.severity === 'ERROR')).toBe(true)
