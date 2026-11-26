@@ -58,4 +58,22 @@ describe('POST /api/worker/guides', () => {
       }),
     )
   })
+
+  it('keeps a SUPPLIER_INFO guide reference-only', async () => {
+    await POST(
+      jsonRequest({
+        title: 'BIDFOOD DROP-OFF',
+        guideType: 'SUPPLIER_INFO',
+        isTracked: true,
+        requiresSignOff: true,
+        steps: [{ content: 'Use the back door.' }],
+      }),
+    )
+
+    expect(db.guide.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ guideType: 'SUPPLIER_INFO', isTracked: false, requiresSignOff: false }),
+      }),
+    )
+  })
 })

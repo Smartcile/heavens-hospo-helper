@@ -13,6 +13,7 @@ const { prisma, getServerSession, guardAccess } = vi.hoisted(() => ({
     checklist: { findMany: vi.fn() },
     recipe: { findMany: vi.fn() },
     guideStep: { deleteMany: vi.fn(), create: vi.fn() },
+    supplier: { updateMany: vi.fn() },
     $transaction: vi.fn(),
   },
   getServerSession: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
 
+import { parseGuideImportAnswer } from '@/lib/import/guide'
 import { GET, POST } from './route'
 
 const getReq = (url = 'http://localhost/api/admin/import/guides') =>
@@ -72,6 +74,7 @@ beforeEach(() => {
   prisma.guideFolder.create.mockResolvedValue({ id: 'f-new' })
   prisma.guideStep.deleteMany.mockResolvedValue({ count: 0 })
   prisma.guideStep.create.mockResolvedValue({ id: 'st1' })
+  prisma.supplier.updateMany.mockResolvedValue({ count: 0 })
   prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
 })
 
@@ -190,6 +193,78 @@ describe('POST /api/admin/import/guides', () => {
     await POST(postReq({ venueId: 'other', rows: [row()] }))
     expect(prisma.guide.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ venueId: 'vm' }) }))
     expect(prisma.guide.create.mock.calls[0][0].data.venueId).toBe('vm')
+  })
+
+  it('forces a created SUPPLIER_INFO guide to be untracked and unsigned', async () => {
+    const values = { ...row().values, guideType: 'SUPPLIER_INFO', isTracked: true, requiresSignOff: true }
+    await POST(postReq({ rows: [row({ values })] }))
+
+    expect(prisma.guide.create.mock.calls[0][0].data).toMatchObject({
+      guideType: 'SUPPLIER_INFO',
+      isTracked: false,
+      requiresSignOff: false,
+    })
+  })
+
+  it('preserves an existing SUPPLIER_INFO type when the row omits guideType', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+    const values = { ...row().values } as Record<string, unknown>
+    delete values.guideType
+
+    const res = await POST(postReq({ rows: [row({ action: 'UPDATE', targetId: 'g1', values })] }))
+
+    expect(res.status).toBe(200)
+    expect(prisma.guide.update.mock.calls[0][0].data).toMatchObject({
+      guideType: 'SUPPLIER_INFO',
+      isTracked: false,
+      requiresSignOff: false,
+    })
+    expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('preserves the type and links when the adapter omits guideType on a re-import', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+    const parsed = parseGuideImportAnswer(JSON.stringify({
+      guides: [{ title: 'BIDFOOD DROP-OFF', audiences: [{ kind: 'SECTION', name: 'BAR' }] }],
+    }))
+    if ('error' in parsed) throw new Error(parsed.error)
+
+    const res = await POST(postReq({
+      rows: [{ ...parsed.rows[0], action: 'UPDATE', targetId: 'g1', values: { ...parsed.rows[0].values, steps: [] } }],
+    }))
+
+    expect(res.status).toBe(200)
+    expect(prisma.guide.update.mock.calls[0][0].data).toMatchObject({
+      guideType: 'SUPPLIER_INFO',
+      isTracked: false,
+      requiresSignOff: false,
+    })
+    expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not unlink suppliers from a CREATE row that carries a targetId', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+
+    await POST(postReq({
+      rows: [row({ action: 'CREATE', targetId: 'g1', values: { ...row().values, guideType: 'HOW_TO' } })],
+    }))
+
+    expect(prisma.supplier.updateMany).not.toHaveBeenCalled()
+    expect(prisma.guide.create).toHaveBeenCalled()
+  })
+
+  it('clears supplier links when an import re-types a SUPPLIER_INFO guide', async () => {
+    prisma.guide.findFirst.mockResolvedValueOnce({ id: 'g1', guideType: 'SUPPLIER_INFO' })
+
+    await POST(postReq({
+      rows: [row({ action: 'UPDATE', targetId: 'g1', values: { ...row().values, guideType: 'HOW_TO' } })],
+    }))
+
+    expect(prisma.supplier.updateMany).toHaveBeenCalledWith({
+      where: { dropOffGuideId: 'g1' },
+      data: { dropOffGuideId: null },
+    })
+    expect(prisma.guide.update.mock.calls[0][0].data.guideType).toBe('HOW_TO')
   })
 
   it('rejects an empty payload', async () => {

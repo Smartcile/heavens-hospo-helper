@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseImportKey } from '@/lib/import/similarity'
-import { isGuideType } from '@/lib/guide-types'
+import { isGuideType, isSupplierInfo } from '@/lib/guide-types'
 import {
   cleanAudiences,
   cleanBodyHtml,
@@ -185,13 +185,17 @@ export async function POST(req: NextRequest) {
         const action = raw.action ?? 'CREATE'
         if (action === 'SKIP') { out.skipped++; continue }
 
-        const rawType = String(values.guideType ?? 'HOW_TO').toUpperCase()
+        // A row may omit guideType (the importer sends the field only when it
+        // knows it). On an UPDATE/REVIVE we resolve that against the target: a
+        // linked SUPPLIER_INFO guide must not silently become HOW_TO.
+        const hasExplicitType = values.guideType != null && String(values.guideType).trim() !== ''
+        const rawType = hasExplicitType ? String(values.guideType).toUpperCase() : 'HOW_TO'
         if (rawType === 'PRODUCT_REFERENCE') {
           out.skipped++
           out.warnings.push(`"${title}" SKIPPED - PRODUCT REFERENCE GUIDES ARE NOT IMPORTED HERE`)
           continue
         }
-        const guideType = isGuideType(rawType) ? rawType : 'HOW_TO'
+        let guideType = hasExplicitType && isGuideType(rawType) ? rawType : 'HOW_TO'
 
         // Audiences
         const audiences: GuideAudienceInput[] = []
@@ -278,7 +282,7 @@ export async function POST(req: NextRequest) {
         }
 
         const target = raw.targetId
-          ? await tx.guide.findFirst({ where: { id: raw.targetId, venueId }, select: { id: true } })
+          ? await tx.guide.findFirst({ where: { id: raw.targetId, venueId }, select: { id: true, guideType: true } })
           : null
         if (raw.targetId && !target) {
           out.skipped++
@@ -286,7 +290,19 @@ export async function POST(req: NextRequest) {
           continue
         }
 
+        if (target && !hasExplicitType && isSupplierInfo(target.guideType)) {
+          guideType = 'SUPPLIER_INFO'
+        }
+
         if (target && (action === 'UPDATE' || action === 'REVIVE')) {
+          // An import must never leave a supplier pointing at a guide that is
+          // no longer SUPPLIER_INFO — clear the links when the type changes.
+          if (isSupplierInfo(target.guideType) && !isSupplierInfo(guideType)) {
+            await tx.supplier.updateMany({
+              where: { dropOffGuideId: target.id },
+              data: { dropOffGuideId: null },
+            })
+          }
           await tx.guide.update({
             where: { id: target.id },
             data: {
@@ -296,8 +312,8 @@ export async function POST(req: NextRequest) {
               guideType,
               bodyHtml: cleanBodyHtml(values.bodyHtml),
               folderId,
-              isTracked: values.isTracked === true,
-              requiresSignOff: values.requiresSignOff === true,
+              isTracked: isSupplierInfo(guideType) ? false : values.isTracked === true,
+              requiresSignOff: isSupplierInfo(guideType) ? false : values.requiresSignOff === true,
               ...(action === 'REVIVE' ? { deletedAt: null, status: 'DRAFT' } : {}),
               audiences: { deleteMany: {}, create: cleanAud },
             },
@@ -330,8 +346,8 @@ export async function POST(req: NextRequest) {
             bodyHtml: cleanBodyHtml(values.bodyHtml),
             folderId,
             status: 'DRAFT',
-            isTracked: values.isTracked === true,
-            requiresSignOff: values.requiresSignOff === true,
+            isTracked: isSupplierInfo(guideType) ? false : values.isTracked === true,
+            requiresSignOff: isSupplierInfo(guideType) ? false : values.requiresSignOff === true,
             audiences: cleanAud.length ? { create: cleanAud } : undefined,
             steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
           },

@@ -5,9 +5,18 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { SupplierPurchasingPanel } from '@/components/admin/SupplierPurchasingPanel'
 
+interface SupplierDropOffGuide {
+  id: string; title: string; status: string; guideType: string | null
+}
+
 interface Supplier {
   id: string; name: string; contact: string | null; email: string | null
   phone: string | null; notes: string | null; isActive: boolean; venueId: string
+  dropOffGuide: SupplierDropOffGuide | null
+}
+
+interface GuideOption {
+  id: string; title: string; status: string
 }
 
 export function SuppliersClient() {
@@ -21,14 +30,23 @@ export function SuppliersClient() {
   const [formEmail, setFormEmail] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [formNotes, setFormNotes] = useState('')
+  const [formDropOffGuideId, setFormDropOffGuideId] = useState('')
+  const [guideOptions, setGuideOptions] = useState<GuideOption[]>([])
+  const [guideError, setGuideError] = useState('')
+  const [savingGuide, setSavingGuide] = useState(false)
+
+  const selectedSupplier = suppliers.find((s) => s.id === selectedId) ?? null
 
   function resetForm() {
     setFormName(''); setFormContact(''); setFormEmail(''); setFormPhone(''); setFormNotes('')
+    setFormDropOffGuideId(''); setGuideError('')
   }
 
   function populateForm(s: Supplier) {
     setFormName(s.name); setFormContact(s.contact ?? ''); setFormEmail(s.email ?? '')
     setFormPhone(s.phone ?? ''); setFormNotes(s.notes ?? '')
+    setFormDropOffGuideId(s.dropOffGuide?.id ?? '')
+    setGuideError('')
   }
 
   async function load() {
@@ -38,7 +56,31 @@ export function SuppliersClient() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  async function loadGuideOptions() {
+    const r = await fetch('/api/admin/suppliers/dropoff-guide-options')
+    if (r.ok) setGuideOptions(await r.json())
+  }
+
+  async function saveDropOffGuide(guideId: string | null) {
+    if (!selectedId || isCreating) return
+    setSavingGuide(true)
+    setGuideError('')
+    const r = await fetch(`/api/admin/suppliers/${selectedId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dropOffGuideId: guideId }),
+    })
+    setSavingGuide(false)
+    if (!r.ok) {
+      const j = await r.json().catch(() => null)
+      setGuideError(j?.error ?? 'COULD NOT SAVE THE DROP-OFF GUIDE')
+      return
+    }
+    setFormDropOffGuideId(guideId ?? '')
+    load()
+  }
+
+  useEffect(() => { load(); loadGuideOptions() }, [])
 
   useEffect(() => {
     if (selectedId && !isCreating) {
@@ -87,6 +129,9 @@ export function SuppliersClient() {
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === s.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
                   <span className="block truncate">{s.name}</span>
                   {s.contact && <span className="block text-xs text-grey-light normal-case">{s.contact}</span>}
+                  <span className={`block text-xs truncate ${s.dropOffGuide ? (s.dropOffGuide.status === 'PUBLISHED' ? 'text-success' : 'text-warning') : 'text-grey-light'}`}>
+                    {s.dropOffGuide ? `DROP-OFF: ${s.dropOffGuide.title}` : 'NO DROP-OFF GUIDE'}
+                  </span>
                 </button>
               ))}
               {suppliers.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No suppliers yet.</p>}
@@ -125,6 +170,50 @@ export function SuppliersClient() {
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">NOTES</label>
                   <Input value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder="NOTES" />
                 </div>
+                {!isCreating && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">DROP-OFF GUIDE</h3>
+                    {selectedSupplier?.dropOffGuide ? (
+                      <p className="font-mono text-xs text-white">
+                        DROP-OFF GUIDE: {selectedSupplier.dropOffGuide.title} · {selectedSupplier.dropOffGuide.status}
+                      </p>
+                    ) : (
+                      <p className="font-mono text-xs text-grey-light">NO DROP-OFF GUIDE</p>
+                    )}
+                    {selectedSupplier?.dropOffGuide?.status === 'DRAFT' && (
+                      <p className="font-mono text-xs text-warning">PUBLISH TO SHOW WORKERS</p>
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select
+                        aria-label="DROP-OFF GUIDE"
+                        value={formDropOffGuideId}
+                        onChange={(e) => setFormDropOffGuideId(e.target.value)}
+                        className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white flex-1 min-w-[180px]"
+                      >
+                        <option value="">— NONE —</option>
+                        {guideOptions.map((g) => (
+                          <option key={g.id} value={g.id}>{g.title} ({g.status})</option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        onClick={() => saveDropOffGuide(formDropOffGuideId || null)}
+                        disabled={savingGuide || !formDropOffGuideId || formDropOffGuideId === (selectedSupplier?.dropOffGuide?.id ?? '')}
+                      >
+                        {selectedSupplier?.dropOffGuide ? 'CHANGE' : 'ASSIGN'}
+                      </Button>
+                      {selectedSupplier?.dropOffGuide && (
+                        <Button variant="ghost" size="sm" onClick={() => saveDropOffGuide(null)} disabled={savingGuide}>CLEAR</Button>
+                      )}
+                    </div>
+                    {guideOptions.length === 0 && (
+                      <p className="font-mono text-xs text-grey-light">
+                        No SUPPLIER INFO guides yet — create one under Training → Playbook with Type SUPPLIER INFO.
+                      </p>
+                    )}
+                    {guideError && <p className="font-mono text-xs text-danger">{guideError}</p>}
+                  </div>
+                )}
                 <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
                   <Button onClick={handleSave} disabled={!formName.trim()}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
                   {!isCreating && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}

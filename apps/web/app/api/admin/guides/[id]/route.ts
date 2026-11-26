@@ -7,6 +7,7 @@ import { loadMenuItemIndex } from '@/lib/reference-table.server'
 import type { ReferenceColumn } from '@/lib/reference-table'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { isSupplierInfo } from '@/lib/guide-types'
 import {
   cleanAudiences,
   cleanBodyHtml,
@@ -104,6 +105,24 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.isTracked !== undefined) updates.isTracked = !!body.isTracked
   if (body.isOnboarding !== undefined) updates.isOnboarding = !!body.isOnboarding
   if (body.requiresSignOff !== undefined) updates.requiresSignOff = !!body.requiresSignOff
+
+  // A supplier guide is reference-only — never tracked and never signed off,
+  // even when an older client still sends the flags.
+  const effectiveGuideType = body.guideType !== undefined ? guideTypeValue(body.guideType) : existing.guideType
+  if (isSupplierInfo(effectiveGuideType)) {
+    updates.isTracked = false
+    updates.requiresSignOff = false
+  } else if (isSupplierInfo(existing.guideType)) {
+    // A linked supplier guide must not be re-typed away from SUPPLIER_INFO:
+    // /w/deliveries would keep offering it while the supplier picker rejects it.
+    const linked = await prisma.supplier.count({ where: { dropOffGuideId: params.id } })
+    if (linked > 0) {
+      return NextResponse.json(
+        { error: 'UNLINK THIS GUIDE FROM ITS SUPPLIERS BEFORE CHANGING ITS TYPE' },
+        { status: 409 },
+      )
+    }
+  }
 
   // Steps are diffed by id rather than deleted and recreated, so step ids stay
   // stable across saves. Anything hanging off a step (links, completions) would
@@ -212,10 +231,18 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  await prisma.guide.update({
-    where: { id: params.id },
-    data: { deletedAt: new Date() },
-  })
+  // A supplier must never point at a deleted guide. Clear the links in the same
+  // transaction as the soft delete so no supplier is left with a dead page.
+  await prisma.$transaction([
+    prisma.supplier.updateMany({
+      where: { dropOffGuideId: params.id },
+      data: { dropOffGuideId: null },
+    }),
+    prisma.guide.update({
+      where: { id: params.id },
+      data: { deletedAt: new Date() },
+    }),
+  ])
 
   return NextResponse.json({ success: true })
 }

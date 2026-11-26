@@ -56,6 +56,64 @@ describe('WorkerDeliveriesClient', () => {
     expect(screen.getAllByText('FAIL').length).toBeGreaterThan(0)
   })
 
+  it('shows published drop-off instructions for the chosen supplier', async () => {
+    const withGuide = {
+      ...payload,
+      suppliers: [
+        { id: 's1', name: 'BIDFOOD', dropOffGuide: { id: 'g2', title: 'BIDFOOD DROP-OFF', status: 'PUBLISHED' } },
+        { id: 's9', name: 'DRAFT SUPPLIER', dropOffGuide: null },
+      ],
+    }
+    const guide = {
+      id: 'g2',
+      title: 'BIDFOOD DROP-OFF',
+      description: null,
+      category: null,
+      guideType: 'SUPPLIER_INFO',
+      bodyHtml: null,
+      isTracked: false,
+      steps: [
+        { id: 'st1', heading: 'BACK DOOR', content: 'Leave chilled goods in the cool room.', imageUrl: null, imageUrls: [], videoUrl: null, videoPath: null, links: [] },
+      ],
+      tableRows: [],
+    }
+    mockRoutes({ 'guides/g2/read': guide, deliveries: withGuide })
+
+    render(<WorkerDeliveriesClient />)
+
+    await screen.findByText('DELIVERIES')
+    fireEvent.click(screen.getByText('+ RECEIVE'))
+
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.change(combos[0], { target: { value: 's1' } })
+
+    expect(await screen.findByText('DROP-OFF INSTRUCTIONS')).toBeDefined()
+    fireEvent.click(screen.getByText(/BIDFOOD DROP-OFF/))
+
+    expect(await screen.findByText('Leave chilled goods in the cool room.')).toBeDefined()
+    expect(screen.getByText(/BACK DOOR/)).toBeDefined()
+  })
+
+  it('hides drop-off instructions for an unpublished guide', async () => {
+    const withDraft = {
+      ...payload,
+      suppliers: [
+        { id: 's1', name: 'BIDFOOD', dropOffGuide: { id: 'g3', title: 'DRAFT DROP-OFF', status: 'DRAFT' } },
+      ],
+    }
+    mockRoutes({ deliveries: withDraft })
+
+    render(<WorkerDeliveriesClient />)
+
+    await screen.findByText('DELIVERIES')
+    fireEvent.click(screen.getByText('+ RECEIVE'))
+
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.change(combos[0], { target: { value: 's1' } })
+
+    expect(screen.queryByText('DROP-OFF INSTRUCTIONS')).toBeNull()
+  })
+
   it('POSTs the receipt with product, temp and verdict fields', async () => {
     const fetchMock = mockRoutes({ deliveries: payload })
 

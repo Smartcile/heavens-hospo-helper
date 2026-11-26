@@ -37,7 +37,8 @@ export interface GuideImportValues {
   title: string
   description: string | null
   category: string | null
-  guideType: string
+  /** Absent when the source omitted it — the route preserves the target type. */
+  guideType?: string
   bodyHtml: string
   folderName: string | null
   audiences: GuideImportAudience[]
@@ -97,7 +98,7 @@ export function buildGuideImportPrompt({ venueName }: { venueName?: string } = {
     `}`,
     ``,
     `Rules:`,
-    `- guideType is HOW_TO, SOP, FAQ, TRAINING, POLICY or OTHER. Never PRODUCT_REFERENCE.`,
+    `- guideType is HOW_TO, SOP, FAQ, TRAINING, POLICY, SUPPLIER_INFO or OTHER. Never PRODUCT_REFERENCE.`,
     `- audiences kind is DEPARTMENT, SECTION or POSITION; name must be an existing venue name.`,
     `- links kind is ITEM, TASK, CHECKLIST, GUIDE, SECTION or RECIPE; name must be an existing record.`,
     `- steps content and body are plain text or simple Markdown.`,
@@ -179,13 +180,21 @@ function rowsFromJson(list: unknown[]): { rows: ImportRow<GuideImportValues>[]; 
     const duplicateOf = seen.get(key)
     if (!duplicateOf) seen.set(key, id)
 
-    const rawType = String(source.guideType ?? source.type ?? 'HOW_TO').trim().toUpperCase()
-    let guideType = isGuideType(rawType) ? rawType : 'HOW_TO'
-    if (rawType === 'PRODUCT_REFERENCE') {
-      guideType = 'PRODUCT_REFERENCE'
-      rowIssues.push({ code: 'PRODUCT_REFERENCE_UNSUPPORTED', severity: 'ERROR', rowId: id, message: `"${title}" IS A PRODUCT REFERENCE - IMPORT IT FROM MENU ITEMS INSTEAD` })
-    } else if (!isGuideType(rawType)) {
-      rowIssues.push({ code: 'GUIDE_TYPE_INVALID', severity: 'WARNING', rowId: id, message: `"${title}" GUIDE TYPE "${rawType}" UNKNOWN - ASSUMED HOW TO` })
+    // Leave an omitted type unset rather than defaulting it here: an UPDATE of
+    // a linked SUPPLIER_INFO guide must preserve the stored type (the route
+    // resolves a missing type against the target).
+    const rawTypeValue = source.guideType ?? source.type
+    const hasType = rawTypeValue != null && String(rawTypeValue).trim() !== ''
+    const rawType = hasType ? String(rawTypeValue).trim().toUpperCase() : ''
+    let guideType: string | undefined
+    if (hasType) {
+      guideType = isGuideType(rawType) ? rawType : 'HOW_TO'
+      if (rawType === 'PRODUCT_REFERENCE') {
+        guideType = 'PRODUCT_REFERENCE'
+        rowIssues.push({ code: 'PRODUCT_REFERENCE_UNSUPPORTED', severity: 'ERROR', rowId: id, message: `"${title}" IS A PRODUCT REFERENCE - IMPORT IT FROM MENU ITEMS INSTEAD` })
+      } else if (!isGuideType(rawType)) {
+        rowIssues.push({ code: 'GUIDE_TYPE_INVALID', severity: 'WARNING', rowId: id, message: `"${title}" GUIDE TYPE "${rawType}" UNKNOWN - ASSUMED HOW TO` })
+      }
     }
 
     const rawAudiences = Array.isArray(source.audiences) ? source.audiences : []
@@ -224,7 +233,7 @@ function rowsFromJson(list: unknown[]): { rows: ImportRow<GuideImportValues>[]; 
         title,
         description: toStringOrNull(source.description),
         category: normaliseMenuName(source.category) || null,
-        guideType,
+        ...(guideType ? { guideType } : {}),
         bodyHtml: markdownToHtml(toStringOrNull(source.body ?? source.bodyHtml) ?? ''),
         folderName: normaliseMenuName(source.folder ?? source.folderName) || null,
         audiences,
@@ -253,7 +262,6 @@ function rowsFromMarkdown(markdown: string): { rows: ImportRow<GuideImportValues
         title: normaliseMenuName(doc.title),
         description: null,
         category: null,
-        guideType: 'HOW_TO',
         bodyHtml: doc.bodyHtml,
         folderName: null,
         audiences: [],

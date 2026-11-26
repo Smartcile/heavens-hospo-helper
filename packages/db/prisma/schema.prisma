@@ -2395,6 +2395,10 @@ enum GuideType {
   // steps; its columns are admin-defined in `Guide.tableColumns`, its rows are
   // GuideTableRow. Still a normal Guide: folders, audiences, bible, PDF.
   PRODUCT_REFERENCE
+  // Supplier drop-off / delivery instructions. Reference-only (untracked); a
+  // Supplier points at one via `Supplier.dropOffGuideId`, and the worker
+  // delivery screen opens it read-only once published.
+  SUPPLIER_INFO
 }
 
 model Guide {
@@ -2444,6 +2448,8 @@ model Guide {
   followUps   FollowUp[]
   audiences   GuideAudience[]
   positionRequirements PositionGuideRequirement[]
+  // Suppliers that use this guide as their drop-off / delivery instructions.
+  supplierDropOffFor Supplier[] @relation("SupplierDropOffGuide")
 
   @@index([venueId])
   @@index([venueId, status])
@@ -3365,12 +3371,16 @@ model Supplier {
   email     String?
   phone     String?
   notes     String?
+  // Optional SUPPLIER_INFO guide with this supplier's drop-off instructions.
+  // One guide per supplier; the same guide can be reused across suppliers.
+  dropOffGuideId String?
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   venue     Venue              @relation(fields: [venueId], references: [id])
+  dropOffGuide Guide?          @relation("SupplierDropOffGuide", fields: [dropOffGuideId], references: [id])
   itemCodes SupplierItemCode[]
   items     InventoryItem[]
   deliveries Delivery[]
@@ -3382,6 +3392,7 @@ model Supplier {
   supplierPriceMovements   SupplierPriceMovement[]
 
   @@index([venueId])
+  @@index([dropOffGuideId])
 }
 
 model UnitOfMeasure {

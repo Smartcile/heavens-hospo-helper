@@ -95,6 +95,14 @@ describe('WorkerGuideEditor', () => {
     expect(onSaved).toHaveBeenCalled()
   })
 
+  it('offers SUPPLIER INFO in the guide type dropdown', async () => {
+    globalThis.fetch = mockFetch()
+    render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
+    await screen.findByText('NEW GUIDE')
+
+    expect(screen.getByRole('option', { name: 'SUPPLIER INFO' })).toBeTruthy()
+  })
+
   it('renders the steps section after the linked-tasks picker', async () => {
     globalThis.fetch = mockFetch()
     render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)

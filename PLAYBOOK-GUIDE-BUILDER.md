@@ -27,7 +27,7 @@
 |---|---|---|---|
 | **Title** | ✅ | text | Stored **UPPERCASE**. Keep it short and literal. |
 | **Description** | – | text | One or two sentences. Shows on the card + worker list. |
-| **Type** | – | `HOW_TO` `SOP` `FAQ` `TRAINING` `POLICY` `OTHER` `PRODUCT_REFERENCE` | Displayed as HOW TO / SOP / FAQ / TRAINING / POLICY / OTHER / PRODUCT REFERENCE. Use `PRODUCT_REFERENCE` **only** for a table (price lists, wine lists, product specs) — it renders a table, not steps. |
+| **Type** | – | `HOW_TO` `SOP` `FAQ` `TRAINING` `POLICY` `OTHER` `PRODUCT_REFERENCE` `SUPPLIER_INFO` | Displayed as HOW TO / SOP / FAQ / TRAINING / POLICY / OTHER / PRODUCT REFERENCE / SUPPLIER INFO. Use `PRODUCT_REFERENCE` **only** for a table (price lists, wine lists, product specs) — it renders a table, not steps. Use `SUPPLIER_INFO` for supplier drop-off/delivery instructions: it stays untracked (reference-only) and can be assigned to a supplier under Settings → SUPPLIERS; only a PUBLISHED one reaches the worker delivery screen. |
 | **Folder** | – | an existing Guide folder | Groups cards on the Playbook page. Drag cards between folders. |
 | **Category** | – | text | Free-text tag, stored UPPERCASE (e.g. `TIPS`, `FOOD SAFETY`, `BAR`). |
 | **Auto-assign to department** | – | a Department | Legacy single-department targeting. Prefer **Applies to** for anything but a single-dept guide. |
@@ -142,7 +142,7 @@ consistent with these when asked to extend or rewrite them.
 GUIDE
 Title:
 Description:
-Type:                 (HOW_TO | SOP | FAQ | TRAINING | POLICY | OTHER | PRODUCT_REFERENCE)
+Type:                 (HOW_TO | SOP | FAQ | TRAINING | POLICY | OTHER | PRODUCT_REFERENCE | SUPPLIER_INFO)
 Folder:
 Category:
 Applies to:           (list DEPARTMENT / SECTION / POSITION targets, or "NONE — ASSIGN INDIVIDUALLY")

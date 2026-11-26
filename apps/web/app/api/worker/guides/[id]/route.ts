@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerGuideAccess } from '@/lib/worker-guide-access'
 import { postRetrainNotice } from '@/lib/retrain'
+import { isSupplierInfo } from '@/lib/guide-types'
 import { prisma } from '@hospo-ops/db'
 import {
   cleanAudiences,
@@ -66,6 +67,22 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.isTracked !== undefined) updates.isTracked = !!body.isTracked
   if (body.isOnboarding !== undefined) updates.isOnboarding = !!body.isOnboarding
   if (body.requiresSignOff !== undefined) updates.requiresSignOff = !!body.requiresSignOff
+
+  // Supplier guides stay reference-only even if the client sends the flags.
+  const effectiveGuideType = body.guideType !== undefined ? guideTypeValue(body.guideType) : existing.guideType
+  if (isSupplierInfo(effectiveGuideType)) {
+    updates.isTracked = false
+    updates.requiresSignOff = false
+  } else if (isSupplierInfo(existing.guideType)) {
+    // A linked supplier guide must not be re-typed away from SUPPLIER_INFO.
+    const linked = await prisma.supplier.count({ where: { dropOffGuideId: params.id } })
+    if (linked > 0) {
+      return NextResponse.json(
+        { error: 'UNLINK THIS GUIDE FROM ITS SUPPLIERS BEFORE CHANGING ITS TYPE' },
+        { status: 409 },
+      )
+    }
+  }
 
   // Filing a guide into a folder (the worker folder drag-and-drop) — the
   // target must be one of THIS venue's live folders.

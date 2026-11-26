@@ -1123,7 +1123,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           }}
           renderSummary={(v) => ({
             title: v.title,
-            meta: `${v.guideType} · ${v.steps.length} STEP${v.steps.length === 1 ? '' : 'S'} · DRAFT`,
+            meta: `${v.guideType ?? 'KEEP EXISTING / DEFAULT'} · ${v.steps.length} STEP${v.steps.length === 1 ? '' : 'S'} · DRAFT`,
           })}
           renderRowControls={(row, patch) => (
             row.action === 'UPDATE' || row.action === 'REVIVE'

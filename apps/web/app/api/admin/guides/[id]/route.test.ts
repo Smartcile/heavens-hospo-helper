@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const { prisma, getServerSession, guardAccess, postRetrainNotice } = vi.hoisted(() => ({
-  prisma: { guide: { findUnique: vi.fn(), update: vi.fn() } },
+  prisma: {
+    guide: { findUnique: vi.fn(), update: vi.fn() },
+    supplier: { updateMany: vi.fn(), count: vi.fn() },
+    $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+  },
   getServerSession: vi.fn(),
   guardAccess: vi.fn(),
   postRetrainNotice: vi.fn(),
@@ -33,7 +37,7 @@ vi.mock('@/lib/guides.server', () => ({
   tableRowsWrite: vi.fn(() => ({})),
 }))
 
-import { PUT } from './route'
+import { DELETE, PUT } from './route'
 
 const req = (body: unknown) => ({ json: async () => body } as unknown as NextRequest)
 
@@ -59,6 +63,8 @@ beforeEach(() => {
     audiences: [{ kind: 'SECTION', targetId: 's1' }],
   }
   prisma.guide.update.mockImplementation(async () => saved)
+  prisma.supplier.updateMany.mockResolvedValue({ count: 1 })
+  prisma.supplier.count.mockResolvedValue(0)
 })
 
 describe('PUT /api/admin/guides/[id] re-training', () => {
@@ -117,5 +123,61 @@ describe('PUT /api/admin/guides/[id] re-training', () => {
 
     expect(res.status).toBe(200)
     expect(postRetrainNotice).toHaveBeenCalled()
+  })
+})
+
+describe('PUT /api/admin/guides/[id] reference-only supplier guides', () => {
+  it('forces track/sign-off off when the type changes to SUPPLIER_INFO', async () => {
+    await PUT(req({ guideType: 'SUPPLIER_INFO', isTracked: true, requiresSignOff: true }), { params: { id: 'g1' } })
+
+    const call = prisma.guide.update.mock.calls[0][0]
+    expect(call.data).toMatchObject({ guideType: 'SUPPLIER_INFO', isTracked: false, requiresSignOff: false })
+  })
+
+  it('falls back to the stored guideType when the save omits it', async () => {
+    prisma.guide.findUnique.mockResolvedValue({ ...existing, guideType: 'SUPPLIER_INFO' })
+
+    await PUT(req({ title: 'BIDFOOD DROP-OFF', isTracked: true, requiresSignOff: true }), { params: { id: 'g1' } })
+
+    const call = prisma.guide.update.mock.calls[0][0]
+    expect(call.data).toMatchObject({ isTracked: false, requiresSignOff: false })
+    expect(call.data).not.toHaveProperty('guideType')
+  })
+
+  it('refuses to re-type a guide that suppliers still point at', async () => {
+    prisma.guide.findUnique.mockResolvedValue({ ...existing, guideType: 'SUPPLIER_INFO' })
+    prisma.supplier.count.mockResolvedValue(2)
+
+    const res = await PUT(req({ guideType: 'HOW_TO' }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(409)
+    expect(prisma.supplier.count).toHaveBeenCalledWith({ where: { dropOffGuideId: 'g1' } })
+    expect(prisma.guide.update).not.toHaveBeenCalled()
+  })
+
+  it('allows a re-type when no supplier points at the guide', async () => {
+    prisma.guide.findUnique.mockResolvedValue({ ...existing, guideType: 'SUPPLIER_INFO' })
+    prisma.supplier.count.mockResolvedValue(0)
+
+    const res = await PUT(req({ guideType: 'HOW_TO' }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    expect(prisma.guide.update).toHaveBeenCalled()
+  })
+})
+
+describe('DELETE /api/admin/guides/[id]', () => {
+  it('clears supplier drop-off links in the same transaction as the soft delete', async () => {
+    const res = await DELETE({} as NextRequest, { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    expect(prisma.supplier.updateMany).toHaveBeenCalledWith({
+      where: { dropOffGuideId: 'g1' },
+      data: { dropOffGuideId: null },
+    })
+    expect(prisma.guide.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
+    )
+    expect(prisma.$transaction).toHaveBeenCalled()
   })
 })

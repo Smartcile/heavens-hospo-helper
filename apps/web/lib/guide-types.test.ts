@@ -1,9 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel, isGuideType, isProductReference } from '@/lib/guide-types'
+import {
+  GUIDE_TYPES,
+  GUIDE_TYPE_LABELS,
+  guideTypeLabel,
+  isGuideType,
+  isProductReference,
+  isSupplierInfo,
+} from '@/lib/guide-types'
 
 describe('guide-types', () => {
   it('exposes the fixed taxonomy in order', () => {
-    expect(GUIDE_TYPES).toEqual(['HOW_TO', 'SOP', 'FAQ', 'TRAINING', 'POLICY', 'OTHER', 'PRODUCT_REFERENCE'])
+    expect(GUIDE_TYPES).toEqual([
+      'HOW_TO',
+      'SOP',
+      'FAQ',
+      'TRAINING',
+      'POLICY',
+      'OTHER',
+      'PRODUCT_REFERENCE',
+      'SUPPLIER_INFO',
+    ])
   })
 
   it('identifies a product reference', () => {
@@ -12,10 +28,18 @@ describe('guide-types', () => {
     expect(isProductReference(null)).toBe(false)
   })
 
+  it('identifies a supplier info guide', () => {
+    expect(isSupplierInfo('SUPPLIER_INFO')).toBe(true)
+    expect(isSupplierInfo('SUPPLIER')).toBe(false)
+    expect(isSupplierInfo(null)).toBe(false)
+  })
+
   it('validates known values only', () => {
     expect(isGuideType('HOW_TO')).toBe(true)
     expect(isGuideType('SOP')).toBe(true)
+    expect(isGuideType('SUPPLIER_INFO')).toBe(true)
     expect(isGuideType('how_to')).toBe(false)
+    expect(isGuideType('SUPPLIER INFO')).toBe(false)
     expect(isGuideType('BANANA')).toBe(false)
     expect(isGuideType(null)).toBe(false)
     expect(isGuideType(42)).toBe(false)
@@ -23,6 +47,7 @@ describe('guide-types', () => {
 
   it('labels known values and nulls everything else', () => {
     expect(guideTypeLabel('HOW_TO')).toBe('HOW TO')
+    expect(guideTypeLabel('SUPPLIER_INFO')).toBe('SUPPLIER INFO')
     expect(GUIDE_TYPE_LABELS.TRAINING).toBe('TRAINING')
     expect(guideTypeLabel('nope')).toBeNull()
     expect(guideTypeLabel(null)).toBeNull()

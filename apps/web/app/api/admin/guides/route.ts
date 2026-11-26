@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { isSupplierInfo } from '@/lib/guide-types'
 import { loadMenuItemIndex } from '@/lib/reference-table.server'
 import {
   cleanAudiences,
@@ -131,12 +132,17 @@ export async function POST(req: NextRequest) {
   const cleanColumns = cleanTableColumns(tableColumns)
   const cleanRows = cleanTableRows(rows, cleanColumns)
 
+  const cleanGuideType = guideTypeValue(guideType)
+  // Supplier guides are reference documents opened from the delivery screen;
+  // they are never tracked and never require sign-off.
+  const referenceOnly = isSupplierInfo(cleanGuideType)
+
   const guide = await prisma.guide.create({
     data: {
       title: String(title).toUpperCase().trim(),
       description: description?.trim() || null,
       category: category ? String(category).toUpperCase().trim() : null,
-      guideType: guideTypeValue(guideType),
+      guideType: cleanGuideType,
       bodyHtml: cleanBodyHtml(bodyHtml),
       pdfPath: pdfPath ? String(pdfPath).trim() : null,
       pdfUrl: pdfUrl ? String(pdfUrl).trim() : null,
@@ -145,9 +151,9 @@ export async function POST(req: NextRequest) {
       folderId: await scopedFolderId(folderId, scopedVenueId),
       sourceMenuId: await scopedMenuId(sourceMenuId, scopedVenueId),
       status: 'DRAFT',
-      isTracked: !!isTracked,
+      isTracked: referenceOnly ? false : !!isTracked,
       isOnboarding: !!isOnboarding,
-      requiresSignOff: !!requiresSignOff,
+      requiresSignOff: referenceOnly ? false : !!requiresSignOff,
       tableColumns: cleanColumns.length
         ? (cleanColumns as unknown as Prisma.InputJsonValue)
         : undefined,
