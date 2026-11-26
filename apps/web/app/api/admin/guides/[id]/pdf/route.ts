@@ -123,7 +123,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${guidePdfFilename(guide.title)}"`,
+      'Content-Disposition': `${_req.nextUrl.searchParams.get('inline') === '1' ? 'inline' : 'attachment'}; filename="${guidePdfFilename(guide.title)}"`,
     },
   })
 }

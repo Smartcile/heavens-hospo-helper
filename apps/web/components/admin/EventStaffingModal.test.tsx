@@ -1,7 +1,16 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { EventStaffingModal, EventClaimsModal } from '@/components/admin/EventStaffingModal'
 import type { EventRosterEvent } from '@/lib/use-event-roster'
+
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
 
 const positions = [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }]
 
@@ -34,6 +43,7 @@ function event(partial: Partial<EventRosterEvent> = {}): EventRosterEvent {
 }
 
 describe('EventStaffingModal', () => {
+  beforeEach(() => { pdfMocks.PdfViewerModal.mockReset() })
   afterEach(() => { vi.restoreAllMocks() })
 
   it('shows the event info, linked roster shifts and claim origin, and only manual events are editable', () => {
@@ -116,6 +126,41 @@ describe('EventStaffingModal', () => {
     expect(screen.getByText(/IMPORTED FROM ICAL FEED/)).toBeDefined()
     expect(screen.queryByText('EDIT EVENT')).toBeNull()
     expect(screen.queryByText('DELETE EVENT')).toBeNull()
+  })
+
+  it('opens an uploaded event PDF in the in-app viewer', () => {
+    render(
+      <EventStaffingModal
+        venueId="v1"
+        event={event({ pdfPath: '/api/upload/beo.pdf' })}
+        positions={positions}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onEdit={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('📄 EVENT PDF'))
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
+    expect(target).toMatchObject({
+      url: '/api/upload/beo.pdf?inline=1',
+      downloadUrl: '/api/upload/beo.pdf',
+    })
+  })
+
+  it('keeps an external event PDF as a marked new-tab link', () => {
+    render(
+      <EventStaffingModal
+        venueId="v1"
+        event={event({ pdfUrl: 'https://example.com/beo.pdf' })}
+        positions={positions}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onEdit={() => {}}
+      />,
+    )
+    const link = screen.getByText('📄 EVENT PDF ↗').closest('a')
+    expect(link?.getAttribute('href')).toBe('https://example.com/beo.pdf')
+    expect(link?.getAttribute('target')).toBe('_blank')
   })
 })
 

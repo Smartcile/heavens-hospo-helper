@@ -10,6 +10,8 @@ import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
 import { linkIdsFor } from '@/lib/beo-links'
 import { buildEventFlow, type EventFlowBlock } from '@/lib/event-flow'
 import { useBlockLibrary } from '@/lib/use-block-library'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 interface EventItem {
   id: string
@@ -56,6 +58,7 @@ export function PipelinePanel({
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<EventItem | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -107,17 +110,26 @@ export function PipelinePanel({
           <span className="font-mono text-xs uppercase text-grey-light">{selected.status} · {dateKey(selected.eventDate)} · {selected.guestCount} PAX</span>
           <div className="flex-1" />
           <Button size="sm" variant="ghost" onClick={() => onOpenEvent(selected.id)}>OPEN BEO</Button>
-          {([['FULL', 'BEO PDF'], ['KITCHEN', 'KITCHEN'], ['CLIENT', 'CLIENT']] as const).map(([variant, label]) => (
-            <a
-              key={variant}
-              href={`/api/admin/events/${selected.id}/pdf?variant=${variant}`}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white"
-            >
-              {label}
-            </a>
-          ))}
+          {([['FULL', 'BEO PDF'], ['KITCHEN', 'KITCHEN'], ['CLIENT', 'CLIENT']] as const).map(([variant, label]) => {
+            const downloadUrl = `/api/admin/events/${selected.id}/pdf?variant=${variant}`
+            return (
+              <button
+                key={variant}
+                type="button"
+                onClick={() =>
+                  setPdfTarget({
+                    url: inlinePdfUrl(downloadUrl),
+                    downloadUrl,
+                    filename: `${selected.name} - ${label}.pdf`,
+                    title: `${selected.name} — ${label}`,
+                  })
+                }
+                className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white"
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
 
         <div className="border border-grey-mid p-3">
@@ -150,6 +162,8 @@ export function PipelinePanel({
             ))}
           </div>
         </div>
+
+        {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
       </div>
     )
   }

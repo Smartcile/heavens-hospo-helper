@@ -17,6 +17,8 @@ import {
   type StaffingDraftLine,
 } from '@/components/admin/StaffingLinesEditor'
 import type { EventPosition, EventQueueClaim, EventRosterEvent } from '@/lib/use-event-roster'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 function hhmmOf(date: Date): string {
   return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`
@@ -132,7 +134,7 @@ export function EventStaffingModal({
     onClose()
   }
 
-  const pdfLink = event.pdfPath || event.pdfUrl
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
@@ -149,11 +151,33 @@ export function EventStaffingModal({
               {event.floorPlanName ? ` · LAYOUT: ${event.floorPlanName}` : ''}
             </p>
             {event.description && <p className="font-mono text-2xs text-grey-light mt-1 max-w-xl">{event.description}</p>}
-            {pdfLink && (
-              <a href={pdfLink} target="_blank" rel="noreferrer" className="inline-block font-mono text-2xs uppercase text-accent hover:text-white mt-1">
+            {event.pdfPath ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const downloadUrl = event.pdfPath as string
+                  setPdfTarget({
+                    url: inlinePdfUrl(downloadUrl),
+                    downloadUrl,
+                    filename: `${event.title}.pdf`,
+                    title: event.title,
+                  })
+                }}
+                className="inline-block font-mono text-2xs uppercase text-accent hover:text-white mt-1"
+              >
+                📄 EVENT PDF
+              </button>
+            ) : event.pdfUrl ? (
+              // pdf-download-ok: external PDF URL
+              <a
+                href={event.pdfUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block font-mono text-2xs uppercase text-accent hover:text-white mt-1"
+              >
                 📄 EVENT PDF ↗
               </a>
-            )}
+            ) : null}
             {event.source !== 'MANUAL' && (
               <p className="font-mono text-2xs uppercase text-grey-light mt-1">
                 IMPORTED FROM {event.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}
@@ -304,6 +328,8 @@ export function EventStaffingModal({
           </div>
         </div>
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

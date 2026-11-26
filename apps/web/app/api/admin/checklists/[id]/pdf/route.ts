@@ -48,7 +48,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   return new NextResponse(checklistPdfToBuffer(doc), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Checklist - ${checklist.name}.pdf"`,
+      'Content-Disposition': `${_req.nextUrl.searchParams.get('inline') === '1' ? 'inline' : 'attachment'}; filename="Checklist - ${checklist.name}.pdf"`,
     },
   })
 }

@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+
+const pdfCanvas = vi.hoisted(() => ({ PdfCanvasViewer: vi.fn() }))
+
+vi.mock('@/components/ui/PdfCanvasViewer', () => ({
+  PdfCanvasViewer: (props: Record<string, unknown>) => {
+    pdfCanvas.PdfCanvasViewer(props)
+    return null
+  },
+}))
+
 import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
 
 function jsonRes(data: unknown): Response {
@@ -7,7 +17,10 @@ function jsonRes(data: unknown): Response {
 }
 
 describe('CalendarEventFormModal', () => {
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    pdfCanvas.PdfCanvasViewer.mockReset()
+  })
 
   it('creates a manual event, warns over capacity and posts staffing lines', async () => {
     const posts: Record<string, unknown>[] = []
@@ -106,5 +119,46 @@ describe('CalendarEventFormModal', () => {
     fireEvent.click(backdrop)
     fireEvent.click(screen.getByText('DISCARD'))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not close the form when clicking inside the PDF viewer', async () => {
+    const onClose = vi.fn()
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/admin/areas')) return jsonRes({ areas: [] })
+      if (url.includes('/api/admin/positions')) return jsonRes([])
+      if (url === '/api/admin/calendar-events/ev1' && !init?.method) {
+        return jsonRes({
+          event: {
+            id: 'ev1', title: 'BOARD MEETING', description: null, areaId: null,
+            startsAt: '2026-10-12T10:00:00.000Z', endsAt: '2026-10-12T12:00:00.000Z',
+            allDay: false, pax: 8, pdfUrl: null, pdfPath: '/api/upload/beo.pdf',
+          },
+          staffing: [],
+        })
+      }
+      return jsonRes([])
+    })
+
+    render(<CalendarEventFormModal venueId="v1" eventId="ev1" onClose={onClose} onSaved={() => {}} />)
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('BOARD MEETING') as HTMLInputElement).value).toBe('BOARD MEETING'),
+    )
+
+    fireEvent.click(screen.getByText('CURRENT PDF'))
+    expect(screen.getByTestId('pdf-viewer-modal')).toBeTruthy()
+    expect(pdfCanvas.PdfCanvasViewer).toHaveBeenCalledWith(
+      expect.objectContaining({ url: '/api/upload/beo.pdf?inline=1' }),
+    )
+
+    // The form's backdrop closes on click; the viewer must stop that event.
+    fireEvent.click(screen.getByTestId('pdf-viewer-modal'))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('BOARD MEETING')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('pdf-back'))
+    await waitFor(() => expect(screen.queryByTestId('pdf-viewer-modal')).toBeNull())
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('BOARD MEETING')).toBeTruthy()
   })
 })

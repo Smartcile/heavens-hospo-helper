@@ -1,7 +1,20 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn(), generateRosterPdf: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
+vi.mock('@/lib/roster-pdf', () => ({
+  generateRosterPdf: pdfMocks.generateRosterPdf,
+}))
 
 import { RosterClient } from '@/components/admin/RosterClient'
 import { keyOfDay, mondayOf, shiftDay } from '@/lib/date-nav'
@@ -58,6 +71,11 @@ function mockFetch(responses: unknown[]) {
 }
 
 describe('RosterClient', () => {
+  beforeEach(() => {
+    pdfMocks.PdfViewerModal.mockReset()
+    pdfMocks.generateRosterPdf.mockReset()
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
@@ -95,6 +113,40 @@ describe('RosterClient', () => {
     expect(screen.getByText(/PUBLISH/)).toBeDefined()
     // Venue switching lives in the sidebar switcher — no in-page venue select.
     expect(screen.queryByText('Venue')).toBeNull()
+  })
+
+  it('opens the generated roster PDF in the in-app viewer and revokes the blob URL', async () => {
+    mockFetch([[], [], data])
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+    const createObjectURL = vi.fn(() => 'blob:roster')
+    const revokeObjectURL = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+    pdfMocks.generateRosterPdf.mockReturnValue({ output: () => new Blob(['%PDF-1.4']) })
+
+    try {
+      const { unmount } = render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+      fireEvent.click(await screen.findByText('PRINT'))
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string; filename: string } }).target
+      expect(target).toMatchObject({
+        url: 'blob:roster',
+        downloadUrl: 'blob:roster',
+        filename: `ROSTER-${monday}.pdf`,
+      })
+      // Never revoked while the viewer is open.
+      expect(revokeObjectURL).not.toHaveBeenCalled()
+
+      unmount()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:roster')
+    } finally {
+      if (originalCreate) Object.defineProperty(URL, 'createObjectURL', originalCreate)
+      else delete (URL as unknown as Record<string, unknown>).createObjectURL
+      if (originalRevoke) Object.defineProperty(URL, 'revokeObjectURL', originalRevoke)
+      else delete (URL as unknown as Record<string, unknown>).revokeObjectURL
+    }
   })
 
   it('uses the shared date nav and toggles compact density', async () => {

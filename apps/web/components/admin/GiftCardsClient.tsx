@@ -211,6 +211,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
+      // pdf-download-ok: gift card bulk print
       a.download = `Gift Cards - ${ids.length} cards.pdf`
       a.click()
       URL.revokeObjectURL(url)

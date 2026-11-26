@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/Textarea'
 import { ImportModal } from '@/components/import/ImportModal'
 import { TipsAddStaffModal } from '@/components/admin/TipsAddStaffModal'
 import { TipsNoteThread } from '@/components/tips/TipsNoteThread'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import {
   applyTipsImport,
   buildTipsImportPrompt,
@@ -104,6 +106,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [noteShare, setNoteShare] = useState<{ id: string; name: string } | null>(null)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const [label, setLabel] = useState('')
   const [fromDate, setFromDate] = useState(todayKey())
@@ -701,12 +704,21 @@ export function TipsClient({ venueId }: { venueId: string }) {
               </div>
               {selectedId && (
                 <div className="flex flex-wrap items-center gap-3 border-t border-grey-mid pt-3">
-                  <a
-                    href={pdfHref()}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const downloadUrl = pdfHref()
+                      setPdfTarget({
+                        url: inlinePdfUrl(downloadUrl),
+                        downloadUrl,
+                        filename: 'Tips distribution.pdf',
+                        title: 'TIPS DISTRIBUTION',
+                      })
+                    }}
                     className="inline-block border border-grey-mid px-3 py-1.5 font-mono text-xs uppercase text-white transition-colors hover:border-white"
                   >
                     ⬇ DOWNLOAD DISTRIBUTION PDF
-                  </a>
+                  </button>
                   <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs uppercase text-grey-light">
                     <input
                       type="checkbox"
@@ -887,6 +899,8 @@ export function TipsClient({ venueId }: { venueId: string }) {
           }}
         />
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

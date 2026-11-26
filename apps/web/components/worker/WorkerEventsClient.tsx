@@ -13,6 +13,8 @@ import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 import { BeoBlockLibrary } from '@/components/admin/BeoBlockLibrary'
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import {
   BEO_BLOCKS,
   blockLabel,
@@ -111,6 +113,7 @@ export function WorkerEventsClient() {
   const [creating, setCreating] = useState(false)
   const [view, setView] = useState<'ENQUIRIES' | 'EVENTS' | 'ALL'>('ENQUIRIES')
   const [converting, setConverting] = useState(false)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   useWorkerImmersive(!!draft || createOpen || showLibrary)
 
@@ -380,17 +383,26 @@ export function WorkerEventsClient() {
               ['FULL', 'BEO'],
               ['CLIENT', 'CLIENT'],
               ['KITCHEN', 'KITCHEN'],
-            ] as const).map(([variant, label]) => (
-              <a
-                key={variant}
-                href={`/api/worker/events/${draft.id}/pdf?variant=${variant}`}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
-              >
-                {label}
-              </a>
-            ))}
+            ] as const).map(([variant, label]) => {
+              const downloadUrl = `/api/worker/events/${draft.id}/pdf?variant=${variant}`
+              return (
+                <button
+                  key={variant}
+                  type="button"
+                  onClick={() =>
+                    setPdfTarget({
+                      url: inlinePdfUrl(downloadUrl),
+                      downloadUrl,
+                      filename: `${draft.name} - ${label}.pdf`,
+                      title: `${draft.name} — ${label}`,
+                    })
+                  }
+                  className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
 
           <div className="space-y-2 pt-2">
@@ -527,6 +539,8 @@ export function WorkerEventsClient() {
           </div>
         </div>
       </Modal>
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

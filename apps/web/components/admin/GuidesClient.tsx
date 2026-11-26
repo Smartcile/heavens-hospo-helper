@@ -17,6 +17,8 @@ import { ReferenceTableEditor, type ReferenceRowDraft, type ReferenceProductOpti
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
 import { downloadFile } from '@/lib/download-file'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import { mergeStepImages } from '@/lib/guide-media'
 import { guideStepUsageKey } from '@/lib/image-annotations'
 import { groupGuidesByFolder } from '@/lib/guide-folders'
@@ -154,6 +156,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [positions, setPositions] = useState<Position[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
   const [loading, setLoading] = useState(true)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Guide | null>(null)
@@ -210,14 +213,16 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     )
   }
 
-  // Fetch + blob save — more reliable than window.open for an authed route.
-  async function downloadSinglePdf(g: Guide) {
+  // Open the single-guide PDF in the in-app viewer (BACK always present).
+  function downloadSinglePdf(g: Guide) {
     setPdfError('')
-    try {
-      await downloadFile(`/api/admin/guides/${g.id}/pdf`, `${g.title}.pdf`)
-    } catch {
-      setPdfError('PDF DOWNLOAD FAILED')
-    }
+    const downloadUrl = `/api/admin/guides/${g.id}/pdf`
+    setPdfTarget({
+      url: inlinePdfUrl(downloadUrl),
+      downloadUrl,
+      filename: `${g.title}.pdf`,
+      title: g.title,
+    })
   }
 
   async function downloadBulkPdf() {
@@ -225,6 +230,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setPdfError('')
     const venueParam = effectiveVenueId ? `&venueId=${encodeURIComponent(effectiveVenueId)}` : ''
     try {
+      // pdf-download-ok: guide bulk PDF
       await downloadFile(`/api/admin/guides/pdf?ids=${[...selectedIds].join(',')}${venueParam}`)
     } catch {
       setPdfError('PDF DOWNLOAD FAILED')
@@ -922,9 +928,21 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               {!editing && <span className="font-mono text-xs uppercase text-grey-light">SAVE THE GUIDE FIRST TO ATTACH A PDF</span>}
               {pdfPath && (
                 <>
-                  <a href={pdfPath} target="_blank" rel="noopener noreferrer" className="font-mono text-xs uppercase text-info hover:text-white transition-colors">
-                    OPEN UPLOADED PDF ↗
-                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const downloadUrl = pdfPath as string
+                      setPdfTarget({
+                        url: inlinePdfUrl(downloadUrl),
+                        downloadUrl,
+                        filename: `${title || 'Guide'}.pdf`,
+                        title: title || 'GUIDE PDF',
+                      })
+                    }}
+                    className="font-mono text-xs uppercase text-info hover:text-white transition-colors"
+                  >
+                    OPEN UPLOADED PDF
+                  </button>
                   <button type="button" onClick={() => setPdfPath(null)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
                     REMOVE
                   </button>
@@ -939,7 +957,13 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
               />
               {pdfUrl && (
-                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-xs uppercase text-info hover:text-white transition-colors shrink-0">
+                // pdf-download-ok: external PDF URL
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-xs uppercase text-info hover:text-white transition-colors shrink-0"
+                >
                   OPEN ↗
                 </a>
               )}
@@ -1120,6 +1144,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           onImported={load}
         />
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

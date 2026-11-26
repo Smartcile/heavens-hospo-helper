@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { FileBrowser } from '@/components/admin/FileBrowser'
 
+const pdfCanvas = vi.hoisted(() => ({ PdfCanvasViewer: vi.fn() }))
+
+vi.mock('@/components/ui/PdfCanvasViewer', () => ({
+  PdfCanvasViewer: (props: Record<string, unknown>) => {
+    pdfCanvas.PdfCanvasViewer(props)
+    return null
+  },
+}))
+
 const mockResponse = (data: unknown, ok = true) => ({ ok, json: async () => data } as Response)
 
 function mockFetch(handlers: Record<string, unknown>) {
@@ -19,6 +28,7 @@ describe('FileBrowser', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
+    pdfCanvas.PdfCanvasViewer.mockReset()
   })
 
   afterEach(() => { vi.restoreAllMocks() })
@@ -115,5 +125,37 @@ describe('FileBrowser', () => {
 
     fireEvent.click(screen.getByText('BACKUPS'))
     expect(await screen.findByText(/NO STORED ARCHIVES/)).toBeTruthy()
+  })
+
+  it('opens a PDF file in the in-app viewer', async () => {
+    mockFetch({ 'root=media&path=': { entries: [pdf] } })
+
+    render(<FileBrowser />)
+    fireEvent.click(await screen.findByText('Gift Card - 20260001.pdf'))
+    fireEvent.click(await screen.findByText('OPEN'))
+
+    expect(screen.getByTestId('pdf-viewer-modal')).toBeTruthy()
+    expect(pdfCanvas.PdfCanvasViewer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf&inline=1',
+      }),
+    )
+  })
+
+  it('does not close the preview when clicking inside the PDF viewer', async () => {
+    mockFetch({ 'root=media&path=': { entries: [pdf] } })
+
+    render(<FileBrowser />)
+    fireEvent.click(await screen.findByText('Gift Card - 20260001.pdf'))
+    await screen.findByText("WHERE IT'S USED")
+
+    fireEvent.click(await screen.findByText('OPEN'))
+    // The preview's backdrop closes on click; the viewer must stop that event.
+    fireEvent.click(screen.getByTestId('pdf-viewer-modal'))
+    expect(screen.getByText("WHERE IT'S USED")).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('pdf-back'))
+    await waitFor(() => expect(screen.queryByTestId('pdf-viewer-modal')).toBeNull())
+    expect(screen.getByText("WHERE IT'S USED")).toBeTruthy()
   })
 })
